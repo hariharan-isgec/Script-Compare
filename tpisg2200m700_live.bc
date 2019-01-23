@@ -1,0 +1,2212 @@
+|******************************************************************************
+|* tpisg2200m700  0  VRC B61U a7 isg 
+|* Global Update in Control Tower
+|* merino1                       
+|* 2018-09-14
+|******************************************************************************
+|* Main table tpisg220, Form Type 4
+|******************************************************************************
+|* ID: ISGEC01100, Sahil Sharma, VRC B61U a7 isg, 17-09-2018
+|* New Development for global update.
+|*
+|* ID: ISGEC01128, Prasanna Bhuyan, VRC B61U a7 isg, 26-11-2018
+|* Modifications(Process records for manual entry no) 
+|*
+|* ID: ISGEC01139, Prasanna Bhuyan, VRC B61U a7 isg, 12-12-2018
+|* WIP field and Progress percentage field update 
+|*
+|* ID: ISGEC01145, Prasanna Bhuyan, VRC B61U a7 isg, 18-12-2018
+|* Update weight in item reference master and history
+|*
+|* ID: ISGEC01155, Sahil Sharma, VRC B61U a7 isg, 11-01-2019	
+|* Update Weight in Item Reference Master when all drawings 
+|* of perticular item reference have Actual Release Date
+|****************************** declaration section ***************************
+declaration:
+
+	table	ttpisg220 | Product Wise Activity Master
+	table	ttcmcs052
+	table	tdmisg140
+	table	ttpisg230
+	table	tdmisg002
+	table	ttpisg239
+	table	ttdisg002
+	table	ttpisg183
+	table	ttdpur400
+	table	tdmisg167
+	table	tdmisg168
+	table	ttdmsl501
+	table	ttpisg200
+	table	tdmisg134
+	table	tdmisg135
+	table	ttdmsl400
+	table	ttiisg910			|#ISGEC01139.n
+	table	ttpisg239			|#ISGEC01145.n
+
+|------------------------ form variables --------------------------------------
+	extern	domain 	tccprj		i.cprj							
+	extern	domain	tcmcs.str100	dsca
+	extern	domain	tcmcs.str50	bohd, bohd.desc
+	extern	domain	tcmcs.s200u	item.ref
+	extern	domain	tcyesno		update.all
+	
+|----------------------- Script Variables ------------------------------------
+	domain	tcpono			flag, pos1, pos2
+	domain	tcwght			v.wght
+	domain	dmdoc.docid		v.docn
+	domain	dmdoc.revv		v.revn
+	domain	tcamnt			v.count1, sum.wght
+	domain	tcperc			var.perc1, var.perc,
+					CountPerc, WeightPerc,TotalCountPerc, TotalWeightPerc, FinalPerc
+	domain	tcwght			po.sub.item.wght
+	domain	tcdate			chk.adct, test.date
+	string				result(80)
+	domain	tcorno			i.pcod
+	domain	tcmcs.s200u		from.iref, to.iref
+	domain	tcmcs.str50		from.bohd, to.bohd
+	domain	tcsess			sess.code
+
+|****************************** program section ********************************
+before.program:
+	import("prog.name$", sess.code)
+	if sess.code = "tpisg2120m000" then
+		import("tpisg220.cprj",i.cprj)
+		import("tpisg220.pcod",i.pcod)
+		import("tpisg220.sub1",item.ref)
+		import("tpisg220.bohd",bohd)
+
+		select	tcmcs052.dsca:dsca
+		from	tcmcs052
+		where	tcmcs052._index1 = {:i.cprj}
+		selectdo
+		selectempty
+			dsca = ""
+		endselect
+	endif
+	
+	test.date = date.to.utc(1853,01,01,00,00,00)
+	test.date = 0
+|****************************** group section **********************************
+
+|****************************** field section *********************************
+field.item.ref:
+before.zoom:
+	tpisg239.pcod = i.pcod
+	tpisg239.cprj = i.cprj
+	
+check.input:
+	if not isspace(item.ref) then
+		select	tpisg239.iref
+		from	tpisg239
+		where	tpisg239._index1 = {:i.pcod,:i.cprj,:item.ref}
+		selectdo
+		selectempty
+			select	tpisg220.cact
+			from	tpisg220
+			where	tpisg220._index1 = {:i.cprj,:i.pcod,:item.ref}
+			selectdo
+			selectempty
+				message("Invalid Item Reference")
+				set.input.error("")
+			endselect
+		endselect
+	endif
+	
+field.bohd:
+check.input:
+	if not isspace(bohd) then
+		select	tpisg231.code
+		from	tpisg231
+		where	tpisg231._index1 = {:bohd}
+		selectdo
+		selectempty
+			message("Invalid Business Object Handle")
+			set.input.error("")
+		endselect
+	endif
+when.field.changes:
+	select	tpisg231.desc:bohd.desc
+	from	tpisg231
+	where	tpisg231._index1 = {:bohd}
+	selectdo
+	endselect
+	
+field.update.all:
+when.field.changes:
+	if update.all = tcyesno.yes then
+		item.ref = ""
+		bohd = ""
+		disable.fields("item.ref", "bohd")
+	else
+		enable.fields("item.ref", "bohd")
+	endif
+
+|****************************** choice section ********************************
+choice.global.update:
+before.choice:
+	check.all.input()
+on.choice:
+	CheckChildExist(i.cprj)
+	update.weight.in.item.reference.master.and.history(i.cprj)	|#ISGEC01145.n
+	update.data.in.pmdl.and.activty.master(i.cprj)
+	update.document.approval.wip(i.cprj)				|#ISGEC01139.n
+	
+	UpdateFinishDateInProjectActivityMaster(i.cprj)
+	UpdateActualStartFinishDateInParentActivities(i.cprj)
+	UpdateMilestoneActivities(i.cprj)
+|****************************** field section *********************************
+
+|****************************** function section ******************************
+functions:
+
+function update.weight.in.item.reference.master.and.history(domain	tccprj	i.cprj)		|#ISGEC01145.sn
+{
+	domain	tcwght	sum.dpwt
+	
+	if update.all = tcyesno.yes then
+		from.bohd = ""
+		to.bohd = "ZZZZZZZ"
+		from.iref = ""
+		to.iref = "ZZZZZZZ"
+	else
+		from.bohd = bohd
+		to.bohd = bohd
+		
+		from.iref = item.ref
+		to.iref = item.ref
+	endif
+	
+	select	tpisg239.pwgt,
+		tpisg239.pcod,
+		tpisg239.cprj,
+		tpisg239.iref
+	from	tpisg239	for update
+	where	tpisg239.cprj = :i.cprj
+	and	tpisg239.iref inrange :from.iref and :to.iref
+	and	tpisg239.wgdr = tcyesno.yes
+	selectdo
+		sum.dpwt = 0
+			
+		select	sum(dmisg140.dpwt):sum.dpwt
+		from	dmisg140
+		where	dmisg140._index1 = {:tpisg239.pcod,:tpisg239.cprj}
+		and	dmisg140.iref = :tpisg239.iref
+		selectdo
+		endselect
+		
+		if sum.dpwt > tpisg239.pwgt	then
+			tpisg239.pwgt = sum.dpwt
+			db.update(ttpisg239,db.retry,e)
+		endif
+
+		flag = 0								|#ISGEC01155.sn
+		select	dmisg140.adct
+		from	dmisg140
+		where	dmisg140._index1 = {:tpisg239.pcod,:tpisg239.cprj}
+		and	dmisg140.iref = :tpisg239.iref
+		and	dmisg140.adct = 0
+		selectdo
+			flag = 1
+			break
+		selectempty
+		endselect
+
+		if flag = 0 then
+			tpisg239.pwgt = sum.dpwt
+			db.update(ttpisg239,db.retry,e)
+		endif
+
+
+|		db.update(ttpisg239,db.retry,e)
+		commit.transaction()
+	endselect											|#ISGEC01155.en
+
+	
+	
+}													|#ISGEC01145.en
+
+function update.document.approval.wip(domain tccprj	i.cprj)		|#ISGEC01139.sn
+{
+	domain	tcmcs.str50	g.bohd
+	domain	dmdoc.docid	i.docn
+	domain	tcpric		wip.num, wip.den
+	domain	tfgld.date	ValidDate, min.tdat
+	
+	g.bohd = "CT_DOCUMENTAPPROVED                               "
+	ValidDate = date.to.num(2000,01,01)
+	
+	db.retry.point()
+	
+	select	tpisg220.cprj,
+		tpisg220.pcod,
+		tpisg220.sub1,
+		tpisg220.cpgv,
+		tpisg220.wipp,
+		tpisg220.cact
+	from	tpisg220	for update
+	where	tpisg220._index1 = {:i.cprj}
+	and	tpisg220.sub1 inrange :from.iref and :to.iref
+	and	tpisg220.bohd = :g.bohd
+	and	tpisg220.manu = tcyesno.no
+	selectdo
+		tpisg220.wipp = 0
+		wip.num = 0
+		wip.den = 0
+		
+
+		select	sum(dmisg140.dhrs+dmisg140.chrs+dmisg140.ehrs+dmisg140.lmhr):wip.den
+		from	dmisg140
+		where	dmisg140._index1 = {:tpisg220.pcod, :tpisg220.cprj}
+		and	dmisg140.adct < :ValidDate
+		and	(dmisg140.iref = :tpisg220.sub1
+		or	dmisg140.iref = :tpisg220.cact)
+		selectdo
+		endselect
+		
+		select	sum(tiisg910.hhrs):wip.num,
+			min(tiisg910.tdat):min.tdat
+		from	dmisg140, tiisg910
+		where	dmisg140._index1 = {:tpisg220.pcod, :tpisg220.cprj}
+		and	dmisg140.adct < :ValidDate
+		and	(dmisg140.iref = :tpisg220.sub1
+		or	dmisg140.iref = :tpisg220.cact)
+		and 	tiisg910.cprj = dmisg140.cprj
+		and 	tiisg910.cdoc = dmisg140.docn
+		selectdo
+		endselect
+
+		if	wip.den <> 0	then
+			tpisg220.wipp = ((wip.num / wip.den) * 100)
+		else
+			tpisg220.wipp = 0
+		endif
+			
+
+		if	tpisg220.cpgv > 90	then
+		else			
+			if	tpisg220.wipp > 0	then
+				tpisg220.cpgv = tpisg220.cpgv + tpisg220.wipp
+				tpisg220.acsd = min.tdat
+				if	tpisg220.cpgv	>	90	then
+					tpisg220.cpgv = 90
+				endif
+			endif
+		endif
+
+		db.update(ttpisg220,db.retry,e)
+		commit.transaction()
+
+	endselect
+}
+
+function update.data.in.pmdl.and.activty.master(domain	tccprj	i.cprj)
+{
+| 	if update.all = tcyesno.yes then
+| 		from.bohd = ""
+| 		to.bohd = "ZZZZZZZ"
+| 		from.iref = ""
+| 		to.iref = "ZZZZZZZ"
+| 	else
+| 		from.bohd = bohd
+| 		to.bohd = bohd
+| 		
+| 		from.iref = item.ref
+| 		to.iref = item.ref
+		
+| 		from.bohd = ""
+| 		to.bohd = "ZZZZ"
+| 		to.iref = "STEAM COIL AIR PRE HEATER"
+| 		from.iref = "STEAM COIL AIR PRE HEATER"
+		
+
+| 	endif
+
+	db.retry.point()							|#ISGEC01128.n
+
+	select	tpisg220.*
+	from	tpisg220	for update
+	where	tpisg220.cprj = :i.cprj
+  	and	tpisg220.bohd inrange :from.bohd and :to.bohd
+	and	tpisg220.sub1 inrange :from.iref and :to.iref
+	and tpisg220.manu = tcyesno.no				|#ISGEC01128.n
+| 	and	tpisg220.bohd = "CT_RESTADVANCERELEASE" or tpisg220.bohd = "CT_FIRSTADVANCERELEASE"
+	selectdo
+		if	trim$(tpisg220.bohd) <> "CT_RFQRAISED" and trim$(tpisg220.bohd) <> "CT_RFQOFFERECEIVED" and
+			trim$(tpisg220.bohd) <> "CT_RFQCOMMERCIALFINALISED" and trim$(tpisg220.bohd) <> "CT_MANUFACTURING" and 
+			trim$(tpisg220.bohd) <> "CT_FIRSTADVANCERELEASE" and trim$(tpisg220.bohd) <> "CT_RESTADVANCERELEASE" and 
+			trim$(tpisg220.bohd) <> "CT_PREORDERTECHCLEAR" and trim$(tpisg220.bohd) <> "CT_RECEIPTPIIRN" then
+			select	dmisg140.iref, dmisg140.docn
+			from	dmisg140
+			where	(dmisg140._index1 = {:tpisg220.pcod, :tpisg220.cprj}
+			and	dmisg140.iref =:tpisg220.sub1)
+			or	(dmisg140._index1 = {:tpisg220.pcod, :tpisg220.cprj}
+			and	dmisg140.iref =:tpisg220.cact)
+			as set with 1 rows
+			selectdo
+				on case trim$(tpisg220.bohd)
+					case "CT_DOCUMENTAPPROVED":
+						update.activity.master.through.document.approval(
+												tpisg220.pcod,
+												tpisg220.cprj,
+												dmisg140.iref,
+												tpisg220.sub1,
+												tpisg220.cact)
+					break
+						
+					case "CT_POAPPROVED":
+						update.activity.master.through.po.approval(
+											tpisg220.pcod,
+											tpisg220.cprj,
+											dmisg140.iref,
+											tpisg220.sub1,
+											tpisg220.cact)
+					break
+					
+					case "CT_POSENTFORAPPROVAL":
+						update.activity.master.through.posent.for.approval(
+												tpisg220.pcod,
+												tpisg220.cprj,
+												dmisg140.iref,
+												tpisg220.sub1,
+												tpisg220.cact)
+					break
+					
+					case "CT_INDENTAPPROVED":
+						update.activity.master.through.indent.approval(
+												tpisg220.pcod,
+												tpisg220.cprj,
+												dmisg140.iref,
+												tpisg220.sub1,
+												tpisg220.cact)
+					break
+					
+					case "CT_POBANKGUARANTEE":
+						
+						update.pmdl.through.BG(tpisg220.cprj,
+									tpisg220.sub1,
+									tpisg220.bohd)
+						
+						update.activity.master.through.bank.guarentee(
+												tpisg220.pcod,
+												tpisg220.cprj,
+												dmisg140.iref,
+												tpisg220.sub1,
+												tpisg220.cact)
+					break
+					
+					case "CT_INSPECTIONCALLRAISED":
+					case "CT_FINALMICN":
+					case "CT_VEHICLEREQUESTRAISED":
+					case "CT_VEHICLEPLACED":
+					case "CT_MATERIALDISPATCHED":
+					case "CT_RECEIPTATPORT":
+					case "CT_INSPECTIONBLACKCONDITION":
+					case "CT_COMPLIANCEOFINSPECTION":
+						update.inspectionid.and.vehicle.placement.progress.in.220(
+													tpisg220.cprj,
+													tpisg220.bohd,
+													tpisg220.sitm,
+													tpisg220.sub1)
+													
+					break
+					
+					case "CT_RECEIPTATSITE":
+					case "CT_SHIPMENT":
+						Shipment.and.ReceiptAtSite(
+									tpisg220.cprj,
+									tpisg220.bohd,
+									tpisg220.sitm,
+									tpisg220.sub1)
+					break
+					
+					
+					case "CT_ISSUEPO":	
+						update.poissue.in.220(
+									tpisg220.cprj,
+									tpisg220.sitm)
+					break
+					
+										
+					case "CT_POSTORDERDRGAPPROVAL":
+						update_pmdl_thru_PostOrder(
+									tpisg220.cprj,
+									dmisg140.iref,
+									tpisg220.bohd)
+									
+						update.project.activity.master.through.postorderdrgapproval(
+													tpisg220.pcod,
+													tpisg220.cprj,
+													dmisg140.iref,
+													tpisg220.sub1,
+													tpisg220.cact)
+					break
+					
+					case "CT_POSTORDERDRGSUBMIT":
+						update_pmdl_thru_PostOrder(
+									tpisg220.cprj,
+									dmisg140.iref,
+									tpisg220.bohd)
+						
+						update.project.activity.master.through.postorderdrgsubmit(
+													tpisg220.pcod,
+													tpisg220.cprj,
+													dmisg140.iref,
+													tpisg220.sub1,
+													tpisg220.cact)
+					break
+					
+				endcase
+			endselect
+ 		else
+			on case trim$(tpisg220.bohd)
+			case "CT_FIRSTADVANCERELEASE":
+				update.pmdl.through.advance(
+							tpisg220.cprj,
+							tpisg220.sub1,
+							tpisg220.bohd)
+				update.project.activity.master.through.advance(
+										tpisg220.cprj,
+										tpisg220.sub1,
+										tpisg220.bohd)
+			break
+
+			case "CT_RESTADVANCERELEASE":
+				update.pmdl.through.advance(
+							tpisg220.cprj,
+							tpisg220.sub1,
+							tpisg220.bohd)
+				
+				update.project.activity.master.through.advance(	
+										tpisg220.cprj,
+										tpisg220.sub1,
+										tpisg220.bohd)
+			break
+	
+				
+				
+				
+			case "CT_RFQRAISED":
+				update.project.activity.master.through.RFQRaised(
+										tpisg220.cprj,
+										tpisg220.sub1,
+										tpisg220.cact)
+			break
+			
+			case "CT_RFQOFFERECEIVED":
+				update.project.activity.master.through.RFQofferreceived(
+											tpisg220.cprj,
+											tpisg220.sub1,
+											tpisg220.cact)
+			break
+			
+			case "CT_MANUFACTURING":
+											|#Atul.sn
+				if trim$(tpisg220.acty) = "MFG" or trim$(tpisg220.acty) = "STATUT"then
+					manufacturing.progress.update(	
+								tpisg220.pcod,
+								tpisg220.cprj,
+								tpisg220.sub1,
+								tpisg220.cact,
+								tpisg220.sitm)
+				endif		
+			break							|#Atul.en	
+	
+			case "CT_RFQCOMMERCIALFINALISED":
+				update.project.activity.master.through.RFQTechnoCommercialCompleted(
+										tpisg220.cprj,
+										tpisg220.sub1,
+										tpisg220.cact)
+			break
+			
+			case "CT_PREORDERTECHCLEAR":
+				update.project.activity.master.through.PreOrderTechClear(
+											tpisg220.cprj,
+											tpisg220.sub1,
+											tpisg220.cact)
+			break
+			
+| 			case "CT_RECEIPTPIIRN":						|#Not in use
+| 				update.receipt.pi.irn.in.tpisg220(
+| 								tpisg220.cprj,
+| 								tpisg220.sub1,
+| 								tpisg220.sitm)
+| 			break
+			endcase
+		endif
+		
+	endselect
+}
+
+function update.activity.master.through.document.approval(domain tcorno		i.pcod,
+							   domain tccprj		i.cprj,
+						 	   domain tcmcs.s200u		dm.iref,	
+						 	   domain tcmcs.s200u		tp.iref,	
+							   domain tcmcs.str30		i.cact)
+{
+	if trim$(dm.iref) = trim$(tp.iref) then
+		tpisg220.acsd = docsapproval.least.date(tp.iref,i.cprj)
+	endif
+	
+	if trim$(dm.iref) = trim$(i.cact) then
+		tpisg220.acsd = docsapproval.least.date(i.cact,i.cprj)
+	endif
+		
+	assign.perc(dm.iref,tp.iref,i.cprj,i.cact)
+}
+
+function update.activity.master.through.po.approval(domain tcorno		i.pcod,
+						     domain tccprj		i.cprj,
+						     domain tcmcs.s200u		dm.iref,
+						     domain tcmcs.s200u		tp.iref,
+						     domain tcmcs.str30		i.cact)
+{
+	if trim$(dm.iref) = trim$(tp.iref) then
+		tpisg220.acsd = poapproved.least.date(tp.iref,i.cprj)
+	endif
+	
+	if trim$(dm.iref) = trim$(i.cact) then
+		tpisg220.acsd = poapproved.least.date(i.cact,i.cprj)
+	endif
+	
+	
+	assign.perc(dm.iref,tp.iref,i.cprj,i.cact)
+	
+}
+
+function update.activity.master.through.posent.for.approval(domain tcorno		i.pcod,
+							     domain tccprj		i.cprj,
+							     domain tcmcs.s200u		dm.iref,
+							     domain tcmcs.s200u		tp.iref,
+							     domain tcmcs.str30		i.cact)
+{
+	
+	if trim$(dm.iref) = trim$(tp.iref) then
+		tpisg220.acsd = posentapproval.least.date(tp.iref,i.cprj)
+	endif
+	
+	if trim$(dm.iref) = trim$(i.cact) then
+		tpisg220.acsd = posentapproval.least.date(i.cact,i.cprj)
+	endif
+	
+	
+	assign.perc(dm.iref,tp.iref,i.cprj,i.cact)
+}
+
+function update.activity.master.through.indent.approval(domain tcorno		i.pcod,
+							domain tccprj		i.cprj,
+							domain tcmcs.s200u	dm.iref,
+							domain tcmcs.s200u	tp.iref,
+							domain tcmcs.str30	i.cact)
+{
+	
+	if trim$(dm.iref) = trim$(tp.iref) then
+		tpisg220.acsd = get.least.indent.date(tp.iref,i.cprj)
+	endif
+	
+	if trim$(dm.iref) = trim$(i.cact) then
+		tpisg220.acsd = get.least.indent.date(i.cact,i.cprj)
+	endif
+	
+	assign.perc(dm.iref,tp.iref,i.cprj,i.cact)
+
+}
+
+function update.activity.master.through.bank.guarentee(domain tcorno		i.pcod,
+							domain tccprj		i.cprj,
+							domain tcmcs.s200u	dm.iref,
+							domain tcmcs.s200u	tp.iref,
+							domain tcmcs.str30	i.cact)
+{
+	
+	if trim$(dm.iref) = trim$(tp.iref) then
+		tpisg220.acsd = bankguarantee.least.date(tp.iref,i.cprj)
+	endif
+	
+	if trim$(dm.iref) = trim$(i.cact) then
+		tpisg220.acsd = bankguarantee.least.date(i.cact,i.cprj)
+	endif
+	
+	assign.perc(dm.iref,tp.iref,i.cprj,i.cact)
+}
+
+function update.project.activity.master.through.postorderdrgapproval(	domain tcorno		i.pcod,
+									domain tccprj		i.cprj,
+									domain tcmcs.s200u	dm.iref,
+									domain tcmcs.s200u	tp.iref,
+									domain tcmcs.str30	i.cact)
+{
+	
+	if trim$(dm.iref) = trim$(tp.iref) then
+		tpisg220.acsd = postorderapproval.least.date(tp.iref,i.cprj)
+	endif
+	
+	if trim$(dm.iref) = trim$(i.cact) then
+		tpisg220.acsd = postorderapproval.least.date(i.cact,i.cprj)
+	endif
+	
+	
+	assign.perc(dm.iref,tp.iref,i.cprj,i.cact)
+}
+
+function update.project.activity.master.through.postorderdrgsubmit(	domain tcorno		i.pcod,
+									domain tccprj		i.cprj,
+									domain tcmcs.s200u	dm.iref,
+									domain tcmcs.s200u	tp.iref,
+									domain tcmcs.str30	i.cact)
+{
+	
+	if trim$(dm.iref) = trim$(tp.iref) then
+		tpisg220.acsd = postordersubmit.least.date(tp.iref,i.cprj)
+	endif
+	
+	if trim$(dm.iref) = trim$(i.cact) then
+		tpisg220.acsd = postordersubmit.least.date(i.cact,i.cprj)
+	endif
+	
+	
+	assign.perc(dm.iref,tp.iref,i.cprj,i.cact)
+}
+
+function update.project.activity.master.through.RFQOfferReceived(
+								domain	tccprj		i.cprj,
+								domain	tcmcs.s200u	i.iref,
+								domain	tcmcs.str30	i.cact)
+{
+	CountPerc = 0
+	WeightPerc = 0
+	
+	tpisg220.acsd = rfqofferreceived.least.date(i.iref,i.cprj,i.cact)
+	
+	
+	
+	RFQOfferReceived.perc(i.cprj,i.iref)
+	
+	tpisg220.cpgv = FinalPerc
+
+	db.update(ttpisg220,db.retry,e)
+	commit.transaction()
+
+}
+
+
+function update.project.activity.master.through.RFQRaised(
+							domain	tccprj		i.cprj,
+							domain	tcmcs.s200u	i.iref,
+							domain	tcmcs.str30	i.cact)
+{
+	domain	tcpono			CountEnquiriesSent
+	CountEnquiriesSent = 0
+	
+	tpisg220.acsd = rfqraised.least.date(i.iref,i.cprj,i.cact)
+	
+	select	distinct dmisg168.wfid
+	from	dmisg140, dmisg167, dmisg168
+	where	dmisg140.cprj = :i.cprj
+	and	dmisg140.iref = :i.iref
+	and	dmisg140.orgn = "ISG"
+	and	dmisg140.cext = tcyesno.yes	|#New Flag added - CHILD EXIST in PMDL
+	and	dmisg167.docn = dmisg140.docn
+	and	dmisg167.wfid = dmisg168.pwfd
+	and 	dmisg168.pwfd <> 0
+	and	dmisg168.stat in ("Enquiry Raised","Technical offer Received","Enquiry For Techno Commercial Negotiation Completed","Commercial offer Received" )
+	group by dmisg168.wfid
+	selectdo
+		CountEnquiriesSent = CountEnquiriesSent + 1
+	endselect
+	
+	
+	
+	calculate.rfq.perc(i.iref,i.cprj)
+	
+	If var.perc <100 and var.perc1 < 100 then
+		if var.perc > var.perc1 then
+			FinalPerc = var.perc
+		else
+			FinalPerc = var.perc1
+		endif
+	else
+		FinalPerc = var.perc
+	endif
+	
+	if FinalPerc > 100 then 
+		FinalPerc = 100
+	endif
+
+	tpisg220.cpgv = FinalPerc
+	tpisg220.numv = CountEnquiriesSent
+	db.update(ttpisg220,db.retry,e)
+	commit.transaction()
+}
+											|#Atul.sn
+function manufacturing.progress.update(	
+					domain tcorno		i.pcod,
+					domain tccprj		i.cprj,
+					domain tcmcs.s200u	i.iref,
+					domain tcmcs.str30	i.cact,
+					domain	tcorno		i.sitm)
+{
+	domain	tcqiv1	sum.tpgv, t.cpgv, tot.val.po,
+			i.po.perc, 
+			i.oamt ,
+			POManufacturingVal, 
+			TotalPOManufacturingPerc, 
+			i.wght.of.po,
+			POManufacturingWeight
+	long		activity.found
+	
+	tot.val.po = 0
+	sum.tpgv = 0
+	t.cpgv = 0
+	activity.found = 0
+	i.po.perc  = 0
+	i.oamt = 0
+	POManufacturingVal = 0
+	TotalPOManufacturingPerc = 0
+	i.wght.of.po = 0
+	POManufacturingWeight = 0
+	
+	
+	if shiftl$(strip$(tpisg220.dept)) = "ISGYNR" then 	|#veena.11-01-2019.sn
+		select	sum(tpisg183.tpgv):sum.tpgv
+		from	tpisg183
+		where	tpisg183._index2 = {:i.cprj,:i.cact}
+		selectdo endselect
+		tpisg220.cpgv = sum.tpgv
+		db.update(ttpisg220,db.retry,e)
+		commit.transaction()
+	else							|#veena.11-01-2019.en
+
+		select	tpisg183.orno
+		from	tpisg183, tdisg002, dmisg140
+		where	tpisg183._index2 = {:i.cprj,:i.cact}
+		and	tpisg183.orno = tdisg002.orno
+		and	tdisg002.docn = dmisg140.docn
+		and	dmisg140.iref = :i.iref
+		group by tpisg183.orno
+		as set with 1 rows
+		selectdo
+			activity.found = 1
+		endselect	
+
+
+		|Calculate PO Value denominator
+		if activity.found = 1 then
+			select	tpisg239.icls
+			from	tpisg239
+			where	tpisg239._index1 = {:i.pcod,:i.cprj,:i.iref}
+	| 		and	tpisg239.pwgt <> 0
+			selectdo		
+				on case etol(tpisg239.icls)	
+				case 1:
+				case 3:
+					tot.val.po = tot.value.of.po(i.cprj,i.iref)
+					break	
+				endcase
+			endselect
+			
+			domain	tcorno		a.sitm
+			t.cpgv = 0
+			i.oamt = 0
+			
+			select	sum(tpisg183.tpgv):sum.tpgv,
+				tpisg183.orno, atpisg220.sitm:a.sitm
+			from	tpisg183, tpisg220 atpisg220
+			where	tpisg183._index2 = {:i.cprj,:i.cact}
+			and	atpisg220._index1 = {tpisg183.cprj}
+			and	atpisg220.cact = tpisg183.atid
+			and	tpisg183.orno <> ""
+			group by tpisg183.orno, atpisg220.sitm
+			selectdo	
+				|Weight Denominator
+				select	tpisg239.pwgt,
+					tpisg239.icls
+				from	tpisg239
+				where	tpisg239._index1 = {:i.pcod,:i.cprj,:i.iref}
+	| 			and	tpisg239.pwgt <> 0
+				selectdo	
+					on case etol(tpisg239.icls)	
+					case 1:
+					case 3:
+						if tot.val.po <> 0 then
+							calc.po.perc(i.cprj, i.iref, i.sitm, i.po.perc)
+	| 						if isspace(a.sitm) then
+								i.oamt = order.amnt.of.po(tpisg183.orno,i.iref)
+								POManufacturingVal = (sum.tpgv * i.oamt)/100
+								TotalPOManufacturingPerc = (POManufacturingVal/tot.val.po) * 100
+	| 						else
+	| 							TotalPOManufacturingPerc = sum.tpgv
+	| 						endif
+							
+							if TotalPOManufacturingPerc<> 0 and i.po.perc<> 0 then		|#veena.22-01-2019
+								t.cpgv = t.cpgv + (TotalPOManufacturingPerc / i.po.perc)*100
+							else
+								t.cpgv = 0
+							endif
+							
+							tpisg220.cpgv = t.cpgv
+
+							db.update(ttpisg220,db.retry,e)
+	| 						commit.transaction()
+						endif
+						break	
+					case 4:	
+						if tpisg239.pwgt <> 0 then
+							calc.po.perc(i.cprj, i.iref, i.sitm, i.po.perc)
+							i.wght.of.po = wght.of.po(tpisg183.orno, i.iref, i.sitm)
+							POManufacturingWeight = (sum.tpgv * i.wght.of.po)/100
+		| 					if isspace(tpisg220.sitm) then
+		| 						t.cpgv = t.cpgv + ((POManufacturingWeight/tpisg239.pwgt)*100) 
+		| 					else
+								po.sub.item.wght = AllPOSubItemWeight(i.cprj, i.iref, tpisg220.sitm)
+
+								if POManufacturingWeight<> 0 and po.sub.item.wght<>0 then	|#veena.22-01-2019
+									t.cpgv = t.cpgv + (POManufacturingWeight/po.sub.item.wght) * i.po.perc
+								else
+									t.cpgv = 0
+								endif
+		| 					endif
+
+							tpisg220.cpgv = t.cpgv
+							db.update(ttpisg220,db.retry,e)
+						endif
+						break
+					endcase
+				endselect
+			endselect
+			commit.transaction()
+		endif
+	endif
+}
+
+function update.project.activity.master.through.RFQTechnoCommercialCompleted(
+									domain	tccprj		i.cprj,
+									domain	tcmcs.s200u	i.iref,
+									domain	tcmcs.str30	i.cact)
+{	
+	tpisg220.acsd = RFQTechnoCommercialCompleted.least.date(i.iref,i.cprj,i.cact)
+	
+	RFQTechnoCommercialCompleted.perc(i.iref,i.cprj)
+	tpisg220.cpgv = FinalPerc
+	db.update(ttpisg220,db.retry,e)
+	commit.transaction()
+}
+
+function update.project.activity.master.through.PreOrderTechClear(
+								domain	tccprj		i.cprj,
+								domain	tcmcs.s200u	i.iref,
+								domain	tcmcs.str30	i.cact)
+{	
+	tpisg220.acsd = PreOrderTechClear.least.date(i.iref,i.cprj,i.cact)
+	
+	RFQPreOrderTechClearPercentage(i.iref,i.cprj)
+	tpisg220.cpgv = FinalPerc
+	db.update(ttpisg220,db.retry,e)
+	commit.transaction()
+}
+
+function assign.perc(domain tcmcs.s200u	dm.iref,
+		      domain tcmcs.s200u	tp.iref,
+		      domain tccprj		i.cprj,
+		      domain tcmcs.str30	i.cact)
+{	
+	FinalPerc = 0
+	
+	if (trim$(dm.iref) = trim$(tp.iref)) then
+		calculate.perc(tp.iref,i.cprj)
+	else if (trim$(dm.iref) = trim$(i.cact)) then
+		calculate.perc(i.cact,i.cprj)
+		endif
+	endif
+	
+| 	If count%<100 and weight% < 100
+|	Then update the higher %
+|	Else count%
+|	Endif
+|	If %update > 100 then 100% endif
+
+
+	If var.perc <100 and var.perc1 < 100 then
+		if var.perc > var.perc1 then
+			FinalPerc = var.perc
+		else
+			FinalPerc = var.perc1
+		endif
+	else
+		FinalPerc = var.perc
+	endif
+	
+	if FinalPerc > 100 then 
+		FinalPerc = 100
+	endif
+
+	tpisg220.cpgv = FinalPerc
+	
+	db.update(ttpisg220,db.retry,e)
+	commit.transaction()
+}
+
+function calculate.rfq.perc(domain tcmcs.st150m		i.iref,
+				domain	tccprj			i.cprj)
+{
+	domain 	tcperc	tot.count, count.rec
+	
+	domain	tcdate		valid.date
+	var.perc1 = 0
+	var.perc = 0
+	valid.date = date.to.utc(2000,01,01,00,00,00)
+	
+	sum.wght = 0
+	count.rec = 0
+	tot.count = 0
+	
+	select	count(dmisg140.docn):count.rec, sum(dmisg140.dpwt):sum.wght
+	from	dmisg140
+	where	dmisg140.cprj = :i.cprj
+	and	dmisg140.iref = :i.iref
+	and	dmisg140.rfqd >:valid.date
+	and	dmisg140.orgn = "ISG"
+	and	dmisg140.cext = tcyesno.yes	|#New Flag added - CHILD EXIST in PMDL
+	selectdo		
+	endselect
+	
+	select count(dmisg140.docn):tot.count 
+	from	dmisg140
+	where	dmisg140.cprj = :i.cprj
+	and	dmisg140.iref = :i.iref
+	and	dmisg140.orgn = "ISG"
+	and	dmisg140.cext = tcyesno.yes	|#New Flag added - CHILD EXIST in PMDL
+	selectdo
+	endselect
+	
+	select	tpisg239.pwgt,tpisg239.icls
+	from	tpisg239
+	where	tpisg239.cprj = :i.cprj
+	and	tpisg239.iref = :i.iref
+	selectdo
+	endselect
+	
+	if (count.rec <> 0) and (tot.count <> 0) then
+		var.perc = (count.rec/tot.count)*100
+	endif
+	
+	
+	if tpisg239.icls = tpitem.class.self.engg and tpisg239.pwgt > 0 then
+		var.perc1 = (sum.wght/tpisg239.pwgt)*100
+	endif
+}
+
+
+function calculate.perc(domain tcmcs.st150m	i.item,
+			domain	tccprj		i.cprj)
+{
+	domain	tcwght		tot.wght
+	long			count.rec
+	domain	tcdate		get.adct 
+	domain	tcmcs.long	v.count1_1, v.count1_2
+	
+	var.perc = 0
+	var.perc1 = 0
+	tot.wght = 0
+	count.rec = 0
+	sum.wght = 0
+	tot.wght = 0
+	i.item = trim$(i.item)
+	get.adct = date.to.utc(2000,01,01,00,00,00)
+	v.count1_1 = 0
+	v.count1_2 = 0
+	
+	|******************* First Way *************
+| 	select	count(dmisg140.iref):v.count1						|#commented veena.22-01-2019
+| 	from	dmisg140
+| 	where	dmisg140.iref =:i.item
+| 	and	dmisg140.cprj =:i.cprj
+| 	and	dmisg140.orgn = "ISG"
+| 	and	dmisg140.cext = tcyesno.yes	|#New Flag added - CHILD EXIST in PMDL	|#commented veena.22-01-2019
+| 	selectdo
+| 	endselect
+	
+	|Count of Unreleased drawings				
+	select	count(dmisg140.iref):v.count1_1			|#veena.22-01-2019.sn
+	from	dmisg140
+	where	dmisg140.iref =:i.item
+	and	dmisg140.cprj =:i.cprj
+	and	dmisg140.orgn = "ISG"
+	and	dmisg140.adct < :get.adct	
+	selectdo
+	endselect
+	
+	|Count of released drawings where child exist=yes
+	select	count(dmisg140.iref):v.count1_2
+	from	dmisg140
+	where	dmisg140.iref =:i.item
+	and	dmisg140.cprj =:i.cprj
+	and	dmisg140.orgn = "ISG"
+	and	dmisg140.adct > :get.adct
+	and	dmisg140.cext = tcyesno.yes	
+	selectdo
+	endselect
+	
+	v.count1 = v.count1_1 + v.count1_2				|#veena.22-01-2019.en
+	
+	if trim$(tpisg220.bohd) = "CT_DOCUMENTAPPROVED" then
+		select	admisg140.adct:chk.adct,
+			admisg140.dpwt:sum.wght
+		from	dmisg140 admisg140
+		where	admisg140.iref =:i.item
+		and	admisg140.cprj =:i.cprj
+		and	admisg140.orgn = "ISG"
+		and	admisg140.adct > :get.adct
+		and	admisg140.cext = tcyesno.yes	|#New Flag added - CHILD EXIST in PMDL
+		selectdo
+			count.rec = count.rec + 1
+			tot.wght = tot.wght + sum.wght
+		endselect
+	endif	
+	
+	if 	trim$(tpisg220.bohd) = "CT_POAPPROVED" then
+		select	admisg140.padt:chk.adct,
+			admisg140.posw:sum.wght
+		from	dmisg140 admisg140
+		where	admisg140.iref =:i.item
+		and	admisg140.cprj =:i.cprj
+		and	admisg140.orgn = "ISG"
+		and	admisg140.padt > :get.adct
+		and	admisg140.cext = tcyesno.yes	|#New Flag added - CHILD EXIST in PMDL
+		selectdo
+			count.rec = count.rec + 1
+			tot.wght = tot.wght + sum.wght
+		endselect
+		
+	endif
+	
+	if 	trim$(tpisg220.bohd) = "CT_POSENTFORAPPROVAL" then
+		select	admisg140.pcdt:chk.adct,
+			admisg140.posw:sum.wght
+		from	dmisg140 admisg140
+		where	admisg140.iref =:i.item
+		and	admisg140.cprj =:i.cprj
+		and	admisg140.orgn = "ISG"
+		and	admisg140.pcdt > :get.adct
+		and	admisg140.cext = tcyesno.yes	|#New Flag added - CHILD EXIST in PMDL
+		selectdo
+			count.rec = count.rec + 1
+			tot.wght = tot.wght + sum.wght
+		endselect
+		
+	endif
+	
+		
+	if	trim$(tpisg220.bohd) = "CT_INDENTAPPROVED" then
+		select	admisg140.iadt:chk.adct,
+			admisg140.idwt:sum.wght
+		from	dmisg140 admisg140
+		where	admisg140.iref =:i.item
+		and	admisg140.cprj =:i.cprj
+		and	admisg140.orgn = "ISG"
+		and	admisg140.iadt > :get.adct
+		and	admisg140.cext = tcyesno.yes	|#New Flag added - CHILD EXIST in PMDL
+		selectdo
+			count.rec = count.rec + 1
+			tot.wght = tot.wght + sum.wght
+		endselect
+	endif
+	
+		
+	if	trim$(tpisg220.bohd) = "CT_POBANKGUARANTEE" then
+		select	admisg140.bgdt:chk.adct,
+			admisg140.posw:sum.wght
+		from	dmisg140 admisg140
+		where	admisg140.iref =:i.item
+		and	admisg140.cprj =:i.cprj
+		and	admisg140.orgn ="ISG"
+		|and	((admisg140.pbga = tcyesno.yes and admisg140.bgdt > :get.adct)|removed use of flag because BG date is updating in PMDL 
+		|in all the cases - 1. Advance Applicable on PO and BG Received against PO. 2. Advance not applicable in PO then PO approval date is
+		|updating in BG Date 3. When Advance applicable in PO but BG not created there BG date is blank
+		and	( admisg140.bgdt > :get.adct)
+		and	admisg140.cext = tcyesno.yes	|#New Flag added - CHILD EXIST in PMDL
+		|or	admisg140.pbga = tcyesno.no)
+		selectdo
+			count.rec = count.rec + 1
+			tot.wght = tot.wght + sum.wght
+		endselect
+	endif
+	
+	if	trim$(tpisg220.bohd) = "CT_POSTORDERDRGAPPROVAL" then
+		select	count(dmisg140.iref):v.count1
+		from	dmisg140
+		where	dmisg140.iref =:i.item
+		and	dmisg140.cprj =:i.cprj
+		and	dmisg140.orgn = "VEN"
+		selectdo
+		endselect
+		
+		select	admisg140.podt:chk.adct
+		from	dmisg140 admisg140
+		where	admisg140.iref =:i.item
+		and	admisg140.cprj =:i.cprj
+		and	admisg140.podt > :get.adct
+		and	admisg140.orgn ="VEN"
+		selectdo
+			count.rec = count.rec + 1
+		endselect
+	endif
+	
+	if	trim$(tpisg220.bohd) = "CT_POSTORDERDRGSUBMIT" then
+		
+		select	count(dmisg140.iref):v.count1
+		from	dmisg140
+		where	dmisg140.iref =:i.item
+		and	dmisg140.cprj =:i.cprj
+		and	dmisg140.orgn = "VEN"
+		selectdo
+		endselect
+		
+		select	admisg140.psdt:chk.adct
+		from	dmisg140 admisg140
+		where	admisg140.iref =:i.item
+		and	admisg140.cprj =:i.cprj
+		and	admisg140.psdt > :get.adct
+		and	admisg140.orgn ="VEN"
+		selectdo
+			count.rec = count.rec + 1
+		endselect
+	endif
+	
+	
+	if (count.rec <> 0) and (v.count1 <> 0)  then
+		var.perc = (count.rec*100)/v.count1
+	endif
+	|***************** Second way ************
+
+	select	tpisg239.pwgt, tpisg239.icls
+	from	tpisg239
+	where	tpisg239.cprj =:i.cprj
+	and	tpisg239.iref =:i.item
+	selectdo
+	endselect
+	
+	if (tot.wght <> 0) and (tpisg239.pwgt <> 0)  then
+		var.perc1 = (tot.wght*100/tpisg239.pwgt)
+	endif
+	
+	if tpisg239.icls <> tpitem.class.self.engg then
+		var.perc1 = 0
+	endif
+}
+
+function RFQOfferReceived.perc(domain	tccprj		i.cprj,
+				domain	tcmcs.s200u	i.iref)
+{
+	domain	tcperc	RFQNumerator,
+			RFQDenominator,
+			DRGCountNumerator,
+			DRGCountDenominator,
+			DRGWeightDenominator,
+			DRGWeightNumerator
+	domain tcdate	get.adct
+	domain	tcmcs.str100	ParentState
+	
+	
+	TotalCountPerc = 0
+	TotalWeightPerc = 0
+	
+|***************************
+| 	Formula-1-(No. of drawings against which offers are received/Total No. of drawings against the item reference in PMDL)
+|			* (No. of offers received against attached drawings / No. of inquiry sent to vendor against attached drawing in RFQ)
+| 	Formula-2 -(Weight of the attached drawings in offers received/Total weight of drawings against the item reference in PMDL)
+| 			* (No. of offers received against attached drawings / No. of inquiry sent to vendor against attached drawing in RFQ)
+| 	If count%<100 and weight% < 100
+| 	Then update the higher %
+| 	Else count%
+| 	Endif 
+| 	If %update > 100 then 100% endif   
+|****************************
+
+	
+	select	dmisg167.wfid
+	from	dmisg140, dmisg167
+	where	dmisg140.cprj = :i.cprj
+	and	dmisg140.iref = :i.iref
+	and	dmisg140.orgn = "ISG"
+	and	dmisg140.cext = tcyesno.yes	|#New Flag added - CHILD EXIST in PMDL
+	and	dmisg167.docn = dmisg140.docn
+	group by dmisg167.wfid
+	selectdo
+		CountPerc = 0
+		DRGCountNumerator = 0
+		DRGCountDenominator = 0
+		RFQNumerator = 0
+		RFQDenominator = 0
+		WeightPerc = 0
+		DRGWeightNumerator = 0
+		DRGWeightDenominator = 0
+		
+| 		select count(*):RFQNumerator 
+| 		from	dmisg168 
+| 		where	dmisg168.pwfd = :dmisg167.wfid 
+| 		|and	dmisg168.stat in("Commercial offer Received","Enquiry For Techno Commercial Negotiation Completed")
+| 		and	dmisg168.stat in("Technical offer Received","Enquiry For Techno Commercial Negotiation Completed","Commercial offer Received")
+| 		selectdo 
+| 		endselect
+		
+		select	dmisg168.stat:ParentState 
+		from	dmisg168
+		where	dmisg168.wfid = :dmisg167.wfid
+		selectdo 
+		endselect
+		
+		on case trim$(ParentState)					
+		case "Enquiry in progress":			
+		case "All Offer Received":
+			select count(*):RFQNumerator 
+			from	dmisg168 
+			where	dmisg168.pwfd = :dmisg167.wfid 		
+			and	dmisg168.stat in("Technical offer Received","Enquiry For Techno Commercial Negotiation Completed","Commercial offer Received")
+			selectdo endselect
+			break
+		case "Commercial offer Finalized":
+			select count(*):RFQNumerator 
+			from	dmisg168 
+			where	dmisg168.pwfd = :dmisg167.wfid 
+			and	dmisg168.stat in("Enquiry For Techno Commercial Negotiation Completed","Commercial offer Received")
+		selectdo 
+		endselect
+			
+			break
+		endcase
+		
+		
+		on case trim$(ParentState)					
+		case "Enquiry in progress":
+			select count(*):RFQDenominator 
+			from	dmisg168
+			where	dmisg168.pwfd = :dmisg167.wfid
+			and	dmisg168.stat in("Enquiry Raised","Technical offer Received","Enquiry For Techno Commercial Negotiation Completed","Commercial offer Received")
+			selectdo
+			endselect
+			
+			break
+		case "All Offer Received":
+			select count(*):RFQDenominator
+			from	dmisg168 
+			where	dmisg168.pwfd = :dmisg167.wfid
+			|and	dmisg168.stat in("Commercial offer Received","Enquiry For Techno Commercial Negotiation Completed")
+			and	dmisg168.stat in("Technical offer Received","Enquiry For Techno Commercial Negotiation Completed","Commercial offer Received")
+			selectdo
+			endselect
+			
+			break
+		case "Commercial offer Finalized":
+			select count(*):RFQDenominator 
+			from	dmisg168 
+			where	dmisg168.pwfd = :dmisg167.wfid 
+			and	dmisg168.stat in("Enquiry For Techno Commercial Negotiation Completed","Commercial offer Received")
+			selectdo
+			endselect
+			
+			break
+		endcase
+		
+		get.adct = date.to.utc(2000,01,01,00,00,00)
+
+		select	count(dmisg140.docn):DRGCountNumerator, 
+			sum(dmisg140.dpwt):DRGWeightNumerator
+		from	dmisg140, dmisg167, dmisg168
+		where	dmisg167.wfid = dmisg168.wfid
+		and	dmisg168.pwfd = 0
+		and	dmisg140.cprj = :i.cprj
+		and	dmisg140.iref = :i.iref
+		and	dmisg140.orgn = "ISG"
+		and	dmisg167.docn = dmisg140.docn
+		and 	dmisg168.wfid = :dmisg167.wfid 
+		and	dmisg140.ofdt > :get.adct
+		and	dmisg140.cext = tcyesno.yes	|#New Flag added - CHILD EXIST in PMDL
+		selectdo
+		endselect
+
+		
+		select	count(dmisg140.docn):DRGCountDenominator
+                from	dmisg140
+		where	dmisg140.iref = :i.iref
+		and	dmisg140.cprj = :i.cprj
+		and	dmisg140.orgn = "ISG"
+		and	dmisg140.cext = tcyesno.yes	|#New Flag added - CHILD EXIST in PMDL
+		selectdo
+		endselect 
+		
+		select	tpisg239.pwgt:DRGWeightDenominator  
+		from	tpisg239 
+		where	tpisg239.cprj = :i.cprj 
+		and	tpisg239.iref = :i.iref
+                selectdo
+		endselect
+		
+		if (DRGCountNumerator <> 0) and (DRGCountDenominator <> 0) and (RFQNumerator <> 0) and
+			(RFQDenominator <> 0) then
+			CountPerc = (DRGCountNumerator/DRGCountDenominator)*(RFQNumerator/RFQDenominator)*100
+		endif
+		
+		if (DRGWeightNumerator <> 0) and (DRGWeightDenominator <> 0) and (RFQNumerator <> 0) and
+			(RFQDenominator <> 0) then
+			WeightPerc = (DRGWeightNumerator/DRGWeightDenominator)*(RFQNumerator/RFQDenominator)*100
+		endif
+		TotalCountPerc = TotalCountPerc + CountPerc
+		TotalWeightPerc = TotalWeightPerc + WeightPerc
+	endselect
+	If TotalCountPerc<100 and TotalWeightPerc < 100 then
+		if TotalCountPerc > TotalWeightPerc then
+			FinalPerc = TotalCountPerc
+		else
+			FinalPerc = TotalWeightPerc
+		endif
+	else
+		FinalPerc = TotalCountPerc
+	endif
+	
+	if FinalPerc > 100 then 
+		FinalPerc = 100
+	endif
+}
+
+function RFQTechnoCommercialCompleted.perc(
+					domain	tcmcs.s200u	i.iref,
+					domain	tccprj		i.cprj)
+{
+	domain	tcperc	RFQNumerator,
+			RFQDenominator,
+			DRGCountNumerator,
+			DRGCountDenominator,
+			DRGWeightDenominator,
+			DRGWeightNumerator
+	domain tcdate	get.adct
+	domain	tcmcs.str100	ParentState
+	
+	TotalCountPerc = 0
+	TotalWeightPerc = 0
+	
+|******************************************************************************************************************************************
+| 	Formula-1-(No. of drawings against which offers are received/Total No. of drawings against the item reference in PMDL)
+|			* (No. of offers received against attached drawings / No. of inquiry sent to vendor against attached drawing in RFQ)
+| 	Formula-2 -(Weight of the attached drawings in offers received/Total weight of drawings against the item reference in PMDL)
+| 			* (No. of offers received against attached drawings / No. of inquiry sent to vendor against attached drawing in RFQ)
+| 	If count%<100 and weight% < 100
+| 	Then update the higher %
+| 	Else count%
+| 	Endif 
+| 	If %update > 100 then 100% endif   
+|*******************************************************************************************************************************************
+	
+	select	dmisg167.wfid
+	from	dmisg140, dmisg167
+	where	dmisg140.cprj = :i.cprj
+	and	dmisg140.iref = :i.iref
+	and	dmisg140.orgn = "ISG"
+	and	dmisg140.cext = tcyesno.yes	|#New Flag added - CHILD EXIST in PMDL
+	and	dmisg167.docn = dmisg140.docn
+	group by dmisg167.wfid
+	selectdo
+		CountPerc = 0
+		DRGCountNumerator = 0
+		DRGCountDenominator = 0
+		RFQNumerator = 0
+		RFQDenominator = 0
+		WeightPerc = 0
+		DRGWeightNumerator = 0
+		DRGWeightDenominator = 0
+		
+		select count(*):RFQNumerator 
+		from	dmisg168 
+		where	dmisg168.pwfd = :dmisg167.wfid 
+		and	dmisg168.stat in("Enquiry For Techno Commercial Negotiation Completed")
+		selectdo 
+		endselect
+		
+		select	dmisg168.stat:ParentState 
+		from	dmisg168
+		where	dmisg168.wfid = :dmisg167.wfid
+		selectdo 
+		endselect
+		
+		on case trim$(ParentState)					
+		case "Enquiry in progress":
+			select count(*):RFQDenominator 
+			from	dmisg168
+			where	dmisg168.pwfd = :dmisg167.wfid
+			and	dmisg168.stat in("Enquiry Raised","Technical offer Received","Enquiry For Techno Commercial Negotiation Completed","Commercial offer Received")
+			selectdo
+			endselect
+			
+			break
+		case "All Offer Received":
+			select count(*):RFQDenominator
+			from	dmisg168 
+			where	dmisg168.pwfd = :dmisg167.wfid
+			|and	dmisg168.stat in("Enquiry For Techno Commercial Negotiation Completed","Commercial offer Received")
+			and	dmisg168.stat in("Technical offer Received","Enquiry For Techno Commercial Negotiation Completed","Commercial offer Received")
+			selectdo
+			endselect
+			
+			break
+		case "Commercial offer Finalized":
+			select count(*):RFQDenominator 
+			from	dmisg168 
+			where	dmisg168.pwfd = :dmisg167.wfid 
+			|and	dmisg168.stat in("Enquiry For Techno Commercial Negotiation Completed")
+			and	dmisg168.stat in("Enquiry For Techno Commercial Negotiation Completed","Commercial offer Received")
+			selectdo
+			endselect
+			
+			break
+		endcase
+		
+		get.adct = date.to.utc(2000,01,01,00,00,00)
+
+		select	count(dmisg140.docn):DRGCountNumerator, 
+			sum(dmisg140.dpwt):DRGWeightNumerator
+		from	dmisg140, dmisg167, dmisg168
+		where	dmisg167.wfid = dmisg168.wfid
+		and	dmisg168.pwfd = 0
+		and	dmisg140.cprj = :i.cprj
+		and	dmisg140.iref = :i.iref
+		and	dmisg140.orgn = "ISG"
+		and	dmisg167.docn = dmisg140.docn
+		and 	dmisg168.wfid = :dmisg167.wfid 
+ 		and	dmisg140.cmfd > :get.adct
+		and	dmisg140.cext = tcyesno.yes	|#New Flag added - CHILD EXIST in PMDL
+		selectdo
+		endselect
+
+		
+		select	count(dmisg140.docn):DRGCountDenominator
+                from	dmisg140
+		where	dmisg140.iref = :i.iref
+		and	dmisg140.cprj = :i.cprj
+		and	dmisg140.orgn = "ISG"
+		and	dmisg140.cext = tcyesno.yes	|#New Flag added - CHILD EXIST in PMDL
+		selectdo
+		endselect 
+		
+		select	tpisg239.pwgt:DRGWeightDenominator  
+		from	tpisg239 
+		where	tpisg239.cprj = :i.cprj 
+		and	tpisg239.iref = :i.iref
+                selectdo
+		endselect
+		
+		if (DRGCountNumerator <> 0) and (DRGCountDenominator <> 0) and (RFQNumerator <> 0) and
+			(RFQDenominator <> 0) then
+			CountPerc = (DRGCountNumerator/DRGCountDenominator)*(RFQNumerator/RFQDenominator)*100
+		endif
+		
+		if (DRGWeightNumerator <> 0) and (DRGWeightDenominator <> 0) and (RFQNumerator <> 0) and
+			(RFQDenominator <> 0) then
+			WeightPerc = (DRGWeightNumerator/DRGWeightDenominator)*(RFQNumerator/RFQDenominator)*100
+		endif
+		TotalCountPerc = TotalCountPerc + CountPerc
+		TotalWeightPerc = TotalWeightPerc + WeightPerc
+	endselect
+	If TotalCountPerc<100 and TotalWeightPerc < 100 then
+		if TotalCountPerc > TotalWeightPerc then
+			FinalPerc = TotalCountPerc
+		else
+			FinalPerc = TotalWeightPerc
+		endif
+	else
+		FinalPerc = TotalCountPerc
+	endif
+	
+	if FinalPerc > 100 then 
+		FinalPerc = 100
+	endif
+}
+
+function RFQPreOrderTechClearPercentage(domain	tcmcs.s200u	i.iref,
+					domain	tccprj		i.cprj)
+{
+	domain	tcperc	RFQNumerator, RFQDenominator, DRGCountNumerator, DRGCountDenominator
+	domain tcdate	get.adct
+	domain	tcmcs.str100	ParentState	
+	
+	TotalCountPerc = 0
+	
+|******************************************************************************************************************************************
+| 	Formula-(No. of drawings against which are Pre Order Technically Cleared/Total No. of drawings against the item reference in PMDL)
+|			* (No. of offers received against attached drawings / No. of inquiry sent to vendor against attached drawing in RFQ) 	
+|*******************************************************************************************************************************************
+	
+	select	dmisg167.wfid
+	from	dmisg140, dmisg167
+	where	dmisg140.cprj = :i.cprj
+	and	dmisg140.iref = :i.iref
+	and	dmisg140.orgn = "ISG"
+	and	dmisg167.docn = dmisg140.docn
+	and	dmisg140.cext = tcyesno.yes	|#New Flag added - CHILD EXIST in PMDL
+	group by dmisg167.wfid
+	selectdo
+		CountPerc = 0
+		DRGCountNumerator = 0
+		DRGCountDenominator = 0
+		RFQNumerator = 0
+		RFQDenominator = 0
+		
+| 		select count(*):RFQNumerator 
+| 		from	dmisg168 , dmisg134
+| 		where	dmisg168.pwfd = :dmisg167.wfid 
+| 		and 	dmisg168.pwfd = dmisg134.pwfd
+| 		and 	dmisg168.wfid = dmisg134.wfid
+| 		|and	dmisg168.stat in("Technical offer Received","Enquiry For Techno Commercial Negotiation Completed","Commercial offer Received")
+| 		and dmisg134.stat = 5
+| 		selectdo 
+| 		endselect
+
+		select	dmisg168.stat:ParentState 
+		from	dmisg168
+		where	dmisg168.wfid = :dmisg167.wfid
+		selectdo 
+		endselect
+		
+		on case trim$(ParentState)					
+		case "Enquiry in progress":
+			select count(*):RFQNumerator 
+			from	dmisg168 , dmisg134
+			where	dmisg168.pwfd = :dmisg167.wfid 
+			and 	dmisg168.pwfd = dmisg134.pwfd
+			and 	dmisg168.wfid = dmisg134.wfid
+			and	dmisg168.stat in("Enquiry Raised","Technical offer Received","Enquiry For Techno Commercial Negotiation Completed","Commercial offer Received")
+			and dmisg134.stat = 5
+			selectdo 
+			endselect
+		case "All Offer Received":			
+			select count(*):RFQNumerator 
+			from	dmisg168 , dmisg134
+			where	dmisg168.pwfd = :dmisg167.wfid 
+			and 	dmisg168.pwfd = dmisg134.pwfd
+			and 	dmisg168.wfid = dmisg134.wfid
+			and	dmisg168.stat in("Technical offer Received","Enquiry For Techno Commercial Negotiation Completed","Commercial offer Received")
+			and dmisg134.stat = 5
+			selectdo 
+			endselect
+		
+			break
+		case "Commercial offer Finalized":
+			select count(*):RFQNumerator 
+			from	dmisg168 , dmisg134
+			where	dmisg168.pwfd = :dmisg167.wfid 
+			and 	dmisg168.pwfd = dmisg134.pwfd
+			and 	dmisg168.wfid = dmisg134.wfid
+			and	dmisg168.stat in("Enquiry For Techno Commercial Negotiation Completed","Commercial offer Received")
+			and 	dmisg134.stat = 5
+			selectdo 
+			endselect
+		endcase
+				
+		on case trim$(ParentState)					
+		case "Enquiry in progress":
+			select count(*):RFQDenominator 
+			from	dmisg168
+			where	dmisg168.pwfd = :dmisg167.wfid
+			and	dmisg168.stat in("Enquiry Raised","Technical offer Received","Enquiry For Techno Commercial Negotiation Completed","Commercial offer Received")
+			selectdo
+			endselect
+			
+			break
+		case "All Offer Received":
+			select count(*):RFQDenominator
+			from	dmisg168 
+			where	dmisg168.pwfd = :dmisg167.wfid
+			|and	dmisg168.stat in("Enquiry For Techno Commercial Negotiation Completed","Commercial offer Received")
+			and	dmisg168.stat in("Technical offer Received","Enquiry For Techno Commercial Negotiation Completed","Commercial offer Received")
+			selectdo
+			endselect
+			
+			break
+		case "Commercial offer Finalized":
+			select count(*):RFQDenominator 
+			from	dmisg168 
+			where	dmisg168.pwfd = :dmisg167.wfid 
+			|and	dmisg168.stat in("Enquiry For Techno Commercial Negotiation Completed")
+			and	dmisg168.stat in("Enquiry For Techno Commercial Negotiation Completed","Commercial offer Received")
+			selectdo
+			endselect
+			
+			break
+		endcase
+		
+		get.adct = date.to.utc(2000,01,01,00,00,00)
+
+		select	count(dmisg140.docn):DRGCountNumerator
+		from	dmisg140, dmisg167, dmisg168
+		where	dmisg167.wfid = dmisg168.wfid
+		and	dmisg168.pwfd = 0
+		and	dmisg140.cprj = :i.cprj
+		and	dmisg140.iref = :i.iref
+		and	dmisg140.orgn = "ISG"
+		and	dmisg167.docn = dmisg140.docn
+		and 	dmisg168.wfid = :dmisg167.wfid 
+ 		and	dmisg140.prdt > :get.adct
+		and	dmisg140.cext = tcyesno.yes	|#New Flag added - CHILD EXIST in PMDL
+		selectdo 
+		endselect
+		
+		select	count(dmisg140.docn):DRGCountDenominator
+                from	dmisg140
+		where	dmisg140.iref = :i.iref
+		and	dmisg140.cprj = :i.cprj
+		and	dmisg140.orgn = "ISG"
+		and	dmisg140.cext = tcyesno.yes	|#New Flag added - CHILD EXIST in PMDL
+		selectdo
+		endselect 		
+		
+		if (DRGCountNumerator <> 0) and (DRGCountDenominator <> 0) and (RFQNumerator <> 0) and
+			(RFQDenominator <> 0) then
+			CountPerc = (DRGCountNumerator/DRGCountDenominator)*(RFQNumerator/RFQDenominator)*100
+		endif
+		
+		TotalCountPerc = TotalCountPerc + CountPerc		
+	endselect
+		FinalPerc = TotalCountPerc
+	
+	if FinalPerc > 100 then 
+		FinalPerc = 100
+	endif
+}
+
+
+function domain tcdate postordersubmit.least.date(
+						domain tcmcs.s200u	i.iref,
+						domain tccprj		i.cprj)
+{
+	domain	tcdate	ret.date, admisg140psdt
+	ret.date = 0
+	admisg140psdt = 0
+	
+	select	admisg140.psdt:admisg140psdt
+	from	dmisg140 admisg140  
+	where	admisg140.iref = :i.iref
+	and	admisg140.cprj = :i.cprj
+	and	admisg140.psdt <> 0
+	order by admisg140.psdt asc
+	as set with 1 rows
+	selectdo
+		change.date.to.utc(admisg140psdt,ret.date)
+	endselect
+	
+| 	if admisg140psdt <> 0 then
+| 		change.date.to.utc(admisg140psdt,ret.date)
+| 	else
+| 		ret.date = 0
+| 	endif
+	return(ret.date)
+}
+
+
+function domain tcdate postorderapproval.least.date(domain tcmcs.s200u	i.iref,
+							domain tccprj		i.cprj)
+{
+	domain	tcdate	ret.date, admisg140podt
+	ret.date = 0
+	admisg140podt = 0
+	
+	select	admisg140.podt:admisg140podt
+	from	dmisg140 admisg140  
+	where	admisg140.iref = :i.iref
+	and	admisg140.cprj = :i.cprj
+	and	admisg140.podt <> 0
+	order by admisg140.podt asc
+	as set with 1 rows
+	selectdo
+		change.date.to.utc(admisg140podt,ret.date)
+	endselect
+	
+| 	if admisg140podt <> 0 then
+| 		change.date.to.utc(admisg140podt,ret.date)
+| 	else
+| 		ret.date = 0
+| 	endif
+	
+	return(ret.date)
+}
+
+function domain tcdate rfqofferreceived.least.date(domain tcmcs.s200u		i.iref,
+							domain tccprj		i.cprj,
+							domain	tcmcs.str30	i.cact)
+{
+	domain	tcdate	ret.date, admisg140ofdt
+	ret.date = 0
+	admisg140ofdt = 0
+	
+	select	admisg140.ofdt:admisg140ofdt
+	from	dmisg140 admisg140  
+	where	(admisg140.iref = :i.iref or admisg140.iref = :i.cact)
+	and	admisg140.cprj = :i.cprj
+	and 	admisg140.ofdt <> 0
+	order by admisg140.ofdt asc
+	as set with 1 rows
+	selectdo
+	endselect
+	
+	if admisg140ofdt <> 0 then
+		change.date.to.utc(admisg140ofdt,ret.date)
+	else
+		ret.date = 0
+	endif
+	
+	return(ret.date)
+}
+
+function domain tcdate RFQTechnoCommercialCompleted.least.date(domain	tcmcs.s200u		i.iref,
+								domain	tccprj			i.cprj,
+								domain	tcmcs.str30		i.cact)
+{
+	domain	tcdate	ret.date, admisg140cmfd
+	ret.date = 0
+	admisg140cmfd = 0
+	
+	select	admisg140.cmfd:admisg140cmfd
+	from	dmisg140 admisg140  
+	where	(admisg140.iref = :i.iref or admisg140.iref = :i.cact)
+	and	admisg140.cprj = :i.cprj
+	and 	admisg140.cmfd <> 0
+	order by admisg140.cmfd asc
+	as set with 1 rows
+	selectdo
+	endselect
+	
+	if admisg140cmfd <> 0 then
+		change.date.to.utc(admisg140cmfd,ret.date)
+	else
+		ret.date = 0
+	endif
+	
+	return(ret.date)
+}
+
+function domain tcdate PreOrderTechClear.least.date(	domain	tcmcs.s200u		i.iref,
+							domain	tccprj			i.cprj,
+							domain	tcmcs.str30		i.cact)
+{
+	domain	tcdate	ret.date, admisg140prdt
+	ret.date = 0
+	admisg140prdt = 0
+	
+	select	admisg140.prdt:admisg140prdt
+	from	dmisg140 admisg140  
+	where	(admisg140.iref = :i.iref or admisg140.iref = :i.cact)
+	and	admisg140.cprj = :i.cprj
+	and 	admisg140.prdt <> 0
+	order by admisg140.prdt asc
+	as set with 1 rows
+	selectdo
+	endselect
+	
+	if admisg140prdt <> 0 then
+		change.date.to.utc(admisg140prdt,ret.date)
+	else
+		ret.date = 0
+	endif
+	
+	return(ret.date)
+}
+
+
+function domain tcdate rfqraised.least.date(domain tcmcs.s200u	i.iref,
+						domain	tccprj		i.cprj,
+						domain	tcmcs.str30	i.cact)
+{
+	domain	tcdate	ret.date, admisg140rfqd
+	admisg140rfqd = 0
+	ret.date = 0
+	
+	select	admisg140.rfqd:admisg140rfqd
+	from 	dmisg140 admisg140  
+	where	(admisg140.iref = :i.iref or admisg140.iref = :i.cact)
+	and 	admisg140.rfqd <> 0
+	and 	admisg140.cprj = :i.cprj
+	order by admisg140.rfqd asc
+	as set with 1 rows
+	selectdo
+	endselect
+	
+	if admisg140rfqd <> 0 then
+		change.date.to.utc(admisg140rfqd,ret.date)
+	else
+		ret.date = 0
+	endif
+	
+	return(ret.date)
+}
+
+
+
+function domain tcdate bankguarantee.least.date(domain tcmcs.s200u	i.iref,
+						domain	tccprj		i.cprj)
+{
+	domain	tcdate	ret.date, admisg140bgdt
+	admisg140bgdt = 0
+	ret.date = 0
+	
+	select	admisg140.bgdt:admisg140bgdt
+	from	dmisg140 admisg140  
+	where	admisg140.iref = :i.iref
+	and	admisg140.cprj = :i.cprj
+	and 	admisg140.bgdt <> 0
+	order by admisg140.bgdt asc
+	as set with 1 rows
+	selectdo
+	endselect
+	
+	if admisg140bgdt <> 0 then
+		change.date.to.utc(admisg140bgdt,ret.date)
+	else
+		ret.date = 0
+	endif
+	
+	return(ret.date)
+}
+
+function domain tcdate docsapproval.least.date(domain tcmcs.s200u	i.iref,
+						domain	tccprj		i.cprj)
+{
+
+	domain	tcdate	ret.date,admisg140adct
+	admisg140adct = 0
+	ret.date = 0
+	
+	select	admisg140.adct:admisg140adct
+	from	dmisg140 admisg140  
+	where	admisg140.iref = :i.iref
+	and	admisg140.cprj = :i.cprj
+	and	admisg140.adct <> 0
+	and	admisg140.orgn = "ISG"					|#veena.22-01-2019.sn
+	and	admisg140.cext = tcyesno.yes				|#veena.22-01-2019.en
+	order by admisg140.adct asc
+	as set with 1 rows
+	selectdo
+	endselect
+	
+	if admisg140adct <> 0 then
+		change.date.to.utc(admisg140adct,ret.date)
+	else
+		ret.date = 0
+	endif
+	
+	return(ret.date)
+}
+
+function domain tcdate poapproved.least.date(domain	tcmcs.s200u	i.iref,
+						domain	tccprj		i.cprj)
+{	
+	domain	tcdate	ret.date, admisg140padt
+	admisg140padt = 0
+	ret.date = 0
+	
+	select	admisg140.padt:admisg140padt
+	from	dmisg140 admisg140 
+	where	admisg140.iref = :i.iref
+	and	admisg140.cprj = :i.cprj
+	and 	admisg140.padt <> 0
+	order by admisg140.padt asc
+	as set with 1 rows
+	selectdo
+	endselect
+	
+	if admisg140padt <> 0 then
+		change.date.to.utc(admisg140padt,ret.date)
+	else
+		ret.date = 0
+	endif
+		
+	return(ret.date)
+}
+
+function domain tcdate posentapproval.least.date(domain tcmcs.s200u	i.iref,
+						domain	tccprj		i.cprj)
+{	
+	domain	tcdate	ret.date, admisg140pcdt
+	admisg140pcdt = 0
+	ret.date = 0
+	
+	
+	select	admisg140.pcdt:admisg140pcdt
+	from	dmisg140 admisg140  
+	where	admisg140.iref = :i.iref
+	and	admisg140.cprj = :i.cprj
+	and 	admisg140.pcdt <> 0
+	order by admisg140.pcdt asc
+	as set with 1 rows
+	selectdo
+	endselect
+	
+	if admisg140pcdt <> 0 then
+		change.date.to.utc(admisg140pcdt,ret.date)
+	else
+		ret.date = 0
+	endif
+	
+	return(ret.date)
+	
+}
+
+function domain tcdate get.least.indent.date(domain tcmcs.s200u	i.iref,
+						domain	tccprj		i.cprj)
+{	
+	domain	tcdate	ret.date,admisg140iadt
+	admisg140iadt = 0
+	ret.date = 0
+
+	select	admisg140.iadt:admisg140iadt
+	from	dmisg140 admisg140
+	where	admisg140.iref = :i.iref
+	and	admisg140.cprj = :i.cprj
+	and	admisg140.iadt <> 0
+	order by admisg140.iadt asc
+	as set with 1 rows
+	selectdo
+	endselect
+	
+	if admisg140iadt <> 0 then
+		change.date.to.utc(admisg140iadt,ret.date)
+	else
+		ret.date = 0
+	endif
+	return(ret.date)
+}
+
+
+function change.date.to.utc(
+			domain	tcdate	var.date,
+		ref	domain	tfgld.date	ret.date)
+{
+	long utc  
+	long yearno  
+	long monthno  
+	long month_dayno  
+	long hours  
+	long minutes  
+	long seconds  
+	string result(80)
+	ret.date = 0
+
+
+	utc.to.date  (var.date, yearno,monthno,month_dayno,hours,minutes,seconds)
+	ret.date = date.to.num(yearno,monthno,month_dayno)
+	result = sprintf$("%D(Date: %02d/%02m/%04Y)",ret.date) 
+}
+
+
+function extern update.pmdl.through.BG(domain tccprj		i.cprj,
+					domain	tcmcs.s200u	i.iref,
+					domain	tcmcs.str50	i.bohd)
+{
+	domain	tcdate		min.trdt, comp.date
+	
+	comp.date = date.to.utc(2000,01,01,00,00,00)
+	min.trdt = 0
+	
+| 	select	dmisg140.docn
+| 	from	dmisg140
+| 	where	dmisg140._index2 = {:i.cprj}
+| 	and	dmisg140.iref = :i.iref
+| 	group by dmisg140.docn
+| 	selectdo		
+	select	dmisg140.bgdt, dmisg140.upct
+	from	dmisg140	for update
+	where	dmisg140._index2 = {:i.cprj}
+	and	dmisg140.iref =:i.iref
+| 	and	dmisg140.docn =:dmisg140.docn
+|	and	(dmisg140.bgdt = 0
+|	or	dmisg140.bgdt < :comp.date)
+	selectdo
+		select distinct tdisg002.orno from tdisg002 where tdisg002.docn = :dmisg140.docn
+		selectdo
+			min.trdt = 0
+			select	min(tfisg151.abdt):min.trdt 
+			from	tfisg151
+			where	tfisg151.orno = :tdisg002.orno				
+			selectdo
+			endselect
+			
+			select	tdmsl400.vrsn
+			from	tdmsl400
+			where	tdmsl400._index1 = {:tdisg002.orno}
+			selectdo
+			endselect
+			
+			if min.trdt= 0 then
+				select	tcisg001.catg
+				from	tcisg001
+				where	tcisg001._index1 = {:tdisg002.orno,:tdmsl400.vrsn}
+				and	tcisg001.catg = 1
+				as set with 1 rows
+				selectdo					
+				selectempty
+					select	min(tdmsl400.apdt):min.trdt
+					from	tdmsl400 
+					where	tdmsl400._index1 = {:tdisg002.orno}
+					and	tdmsl400.work = 3
+					selectdo 
+					endselect					
+				endselect
+			endif				
+
+			dmisg140.bgdt = min.trdt
+			dmisg140.upct = tcyesno.yes
+			db.update(tdmisg140,db.retry,e)
+		endselect
+	endselect
+}
+
+
+function extern update_pmdl_thru_PostOrder(domain tccprj	i.cprj,
+					domain	tcmcs.s200u	i.iref,
+					domain	tcmcs.str50	i.bohd)											
+{
+	select	dmisg140.*
+	from	dmisg140 for update
+	where	dmisg140.cprj =:i.cprj
+	and	dmisg140.iref =:i.iref
+	and	dmisg140.orgn = "VEN"
+	selectdo
+		select	dmisg135.idoc, dmisg135.rcno, dmisg135.revn
+	 	from	dmisg135
+	 	where	dmisg135.idoc = :dmisg140.docn
+	 	selectdo
+			|Updating PMDL date from zero revision receipt date
+			if trim$(i.bohd) = "CT_POSTORDERDRGSUBMIT" then
+				dmisg140.psdt=0
+				select	dmisg134.date, dmisg134.stat
+				from	dmisg134
+				where	dmisg134._index1 = {:dmisg135.rcno, "00"}
+				selectdo
+					dmisg140.psdt = dmisg134.date	
+				endselect						
+			endif
+			
+			|Updating PMDL date for technical clearance
+			if trim$(i.bohd) = "CT_POSTORDERDRGAPPROVAL" then
+				dmisg140.podt=0
+				select	dmisg134.adat, dmisg134.stat
+				from	dmisg134
+				where	dmisg134._index1 = {:dmisg135.rcno, :dmisg135.revn}
+				and dmisg134.stat = 5
+				selectdo
+					dmisg140.podt = dmisg134.adat					
+				endselect
+			endif
+			dmisg140.upct = tcyesno.yes
+			db.update(tdmisg140,db.retry,e)
+		endselect
+	endselect
+}
+
+|*Reverse the logic of changing Item Refernce on Drawing Approval when Child Item Not exist.-DOn|*e
+|*New Logic- 
+|*Add a new field "Child Exist" in PMDL and Update it Yes/No on Global Approval. This will be done based on latest revision of document.
+|*Default Value will remain YES. Value will change with following logic in Global update -
+|*1. When Category = "ISG" and Item Ref Exists and child Item exist in drawing then ChildExist will remain "YES"
+|*2. When Category = "ISG" and Item Ref Exists and child Item does not exist in drawing then ChildExist will convert to "No"
+|*3. All other drawings will remain Yes
+|*Drawing  count/weight will be on ChildExist = YES for numerator as well as denominator
+
+function CheckChildExist(domain tccprj		i.cprj)
+{
+	domain	tcpono		ChildCount
+	domain	tcyesno		ItemReferenceExists
+	
+	select	dmisg140.cext,dmisg140.iref,
+		dmisg140.docn, dmisg140.pcod,
+		dmisg140.cprj, dmisg140.orgn
+	from	dmisg140 for update
+	where	dmisg140.cprj =:i.cprj
+| 	and	dmisg140.iref = "STEAM COIL AIR PRE HEATER"
+	selectdo
+		ChildCount = 0
+		ItemReferenceExists = tcyesno.no
+		
+		select	count(*):ChildCount
+		from	dmisg002
+		where	dmisg002._index1 = {:dmisg140.docn}
+		selectdo
+		endselect
+		
+		select	tpisg220.sub1
+		from	tpisg220
+		where	tpisg220._index1 = {:dmisg140.cprj, :dmisg140.pcod}
+		and	tpisg220.sub1 =:dmisg140.iref
+		selectdo		
+			ItemReferenceExists = tcyesno.yes
+		endselect
+				
+		|*1. When Category = "ISG" and Item Ref Exists and child Item exist in drawing then ChildExist will remain "YES"
+		
+		if  dmisg140.orgn = "ISG" and ItemReferenceExists = tcyesno.yes and ChildCount > 0 then
+			dmisg140.cext = tcyesno.yes
+		else
+			|*2. When Category = "ISG" and Item Ref Exists and child Item does not exist in drawing then ChildExist will convert to "No"
+			if  dmisg140.orgn = "ISG" and ItemReferenceExists = tcyesno.yes and ChildCount = 0 then
+				dmisg140.cext = tcyesno.no
+			else
+				|*3. All other drawings will remain Yes				
+				dmisg140.cext = tcyesno.yes
+			endif
+		endif
+		db.update(tdmisg140, db.retry, e)
+		commit.transaction()
+	endselect
+}
+
+function UpdateMilestoneActivities(domain	tccprj		i.cprj)
+{
+	domain	tcqiv1		Milestone_perc
+	domain	tcpono		found
+	domain tfgld.date MaxFinishDate
+	
+	select	tpisg220.cact, tpisg220.cpgv
+	from	tpisg220	for update
+	where	tpisg220._index1 = {:i.cprj}
+	and	tpisg220.bohd = "CT_MILESTONE"
+	selectdo
+		found = 0
+		Milestone_perc = 0
+		select	tpisg221.pact
+		from	tpisg221, tpisg220	ms_tpisg220
+		where	tpisg221._index1 = {:i.cprj}
+		and	tpisg221.cact =:tpisg220.cact
+		and	ms_tpisg220.cprj = tpisg221.cprj
+		and	ms_tpisg220.cact = tpisg221.pact
+		and	ms_tpisg220.cpgv <= 99.99
+		selectdo
+			found = 0
+			break
+		selectempty
+			found = 1
+		endselect
+		
+		MaxFinishDate = 0
+		select	max(ms2_tpisg220.acfn):MaxFinishDate
+		from	tpisg221, tpisg220	ms2_tpisg220
+		where	tpisg221._index1 = {:i.cprj}
+		and	tpisg221.cact =:tpisg220.cact
+		and	ms2_tpisg220.cact = tpisg221.pact
+		and	ms2_tpisg220.cprj = tpisg221.cprj
+		and	ms2_tpisg220.cpgv > 99.99
+		selectdo
+		endselect
+		
+		if found = 1 then
+			tpisg220.cpgv = 100
+			tpisg220.acfn = MaxFinishDate
+			tpisg220.acsd = MaxFinishDate
+			db.update(ttpisg220, db.retry,e)
+			commit.transaction()
+		else
+			tpisg220.cpgv = 0
+			tpisg220.acfn = 0
+			tpisg220.acsd = 0
+			db.update(ttpisg220, db.retry,e)
+			commit.transaction()			
+		endif
+	endselect
+	
+
+}
