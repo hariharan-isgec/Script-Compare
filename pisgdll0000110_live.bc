@@ -51,9 +51,14 @@
 function extern renumber.in.220(domain tccprj		ren.cprj,
 				domain	  tcorno	ren.cprd)
 {
+
 	idno = 0
 	
 	
+
+
+
+
 	select	tpisg200.cprd, tpisg200.cact,
 		tpisg200.actp
 	from	tpisg200, tpisg220 atpisg220
@@ -1630,9 +1635,7 @@ function extern domain tcqiv1	tot.value.of.po(domain tccprj		i.cprj,
 	return(val.po)
 }
 
-function extern domain tfgld.date GetStartDate(	domain tcmcs.long BalanceDays,
-							domain tfgld.date EndDate,
-							domain tpcalender.typ TypeOfCalender)
+function extern domain tfgld.date GetStartDate(domain tcmcs.long BalanceDays, domain tfgld.date EndDate,domain tpcalender.typ TypeOfCalender)
 {
 	domain	tcmcs.long WorkingDaysCount, i, ReturnValue
 	WorkingDaysCount = 0
@@ -1650,6 +1653,10 @@ function extern domain tfgld.date GetStartDate(	domain tcmcs.long BalanceDays,
 	EndDate = EndDate + 1
 	return(EndDate)
 }
+
+
+
+
 function extern domain tcmcs.long GetWorkingDays(
 						domain	tfgld.date	StartDate,
 						domain	tfgld.date	EndDate,

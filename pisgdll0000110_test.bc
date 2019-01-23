@@ -81,6 +81,21 @@ function extern renumber.in.220(domain tccprj		ren.cprj,
 	
 }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function extern update.inspectionid.and.vehicle.placement.progress.in.220(	domain	tccprj		i.cprj,
 										domain	tcmcs.str50	i.bohd,
 										domain	tcorno		i.sitm,
@@ -1751,6 +1766,39 @@ function extern long ISNonWorkingDay(	domain	tfgld.date	IDate,
 	
 	return(0)
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 function extern ParentDurationCalculation(domain tccprj	cprj)
 {
