@@ -1,0 +1,2176 @@
+|******************************************************************************
+|* tpisgdll000011  0  VRC B61U a7 isg 
+|* Control Tower
+|* merino1
+|* 18-09-06 [11:01]
+|******************************************************************************
+|* Script Type: Library
+|******************************************************************************
+|* ID: ISGEC01100, Sahil Sharma, 10-08-2018, VRC B61U a7 isg 
+|* New Development for Control Tower functions for "CT_INSPECTIONCALLRAISED",
+| "CT_POISSUE","CT_FIRSTADVANCERELEASE", "CT_RESTADVANCERELEASE", "CT_FINALMICN",
+| "CT_RECEIPT-PI-IRN", "CT_VEHICLEREQUESTRAISED", "CT_VEHICLEPLACED".
+|*
+|* ID: ISGEC01128, Prasanna Bhuyan, VRC B61U a7 isg, 26-11-2018
+|* Modifications(Process records for manual entry no) 
+|******************************************************************************
+	table	ttpisg200
+	table	ttpisg220
+	table	ttpisg207
+	table	ttpisg208
+	table	tdmisg140
+	table	ttpisg239
+	table	ttfisg605
+	table	ttdpur400
+	table	ttcisg001
+	table	ttfmsl020
+	table	ttdisg002
+	table	ttdmsl501
+	table	ttdmsl400
+
+	extern domain	tcmcs.long	idno, found, count.adct, flag, h.flag, ret
+	extern domain	tcperc		po.perc, res.perc, count.rec,
+					v.count1
+	extern	domain	tcwght		tot.wght, a.wght, o.wght, sum.wght, wt.perc
+	extern	domain	tcamnt		tot.amnt,var.perc, var.perc1, sum.cpgv, tot.adv.po,
+					tot.adv.paid, sum.amnt
+	extern	domain	tpentry.mode	o.mode
+	extern	domain	tcorno		order.no, old.pay
+	extern	domain	tccprj		project
+	extern	domain	tcsern		lat.vrsn
+	extern	domain	tcperc		o.cpgv
+	extern	domain	tcperc		allPOWght, tot.perc, o.perc	
+	extern	domain	tfgld.date	res.date
+	extern	domain	tcmcs.long	o.inid
+	extern	domain	tcqiv1		t.cpgv, tot.val.po, po.sub.item.wght, sum.tpgv,
+					i.po.perc, i.oamt , POManufacturingVal, POShipmentVal,
+					TotalPOManufacturingPerc, i.wght.of.po, POManufacturingWeight,TotalPOShipmentPerc, POShipmentWeight,
+					PiIrnPerc
+
+
+function extern renumber.in.220(domain tccprj		ren.cprj,
+				domain	  tcorno	ren.cprd)
+{
+
+	idno = 0
+	
+	
+
+
+
+
+	select	tpisg200.cprd, tpisg200.cact,
+		tpisg200.actp
+	from	tpisg200, tpisg220 atpisg220
+	where	tpisg200.cprd = atpisg220.pcod
+	and	tpisg200.cact = atpisg220.cact
+	and	atpisg220.cprj = :ren.cprj
+	and	tpisg200._index1 = {:ren.cprd}
+	order by tpisg200.actp
+	selectdo
+		select	tpisg220.actp
+		from	tpisg220	for update
+		where	tpisg220._index1 = {:ren.cprj,:ren.cprd,:tpisg200.cact}
+		selectdo
+			idno = idno + 1
+			tpisg220.actp = idno
+			db.update(ttpisg220, db.retry, e)
+			commit.transaction()
+		endselect
+	endselect
+| 	select	tpisg200.cprd, tpisg200.cact,
+| 		tpisg200.actp
+| 	from	tpisg200
+| 	where	tpisg200._index1 = {:ren.cprd}
+| 	order by tpisg200.actp
+| 	selectdo
+| 		select	tpisg220.actp
+| 		from	tpisg220	for update
+| 		where	tpisg220._index1 = {:ren.cprj,:ren.cprd,:tpisg200.cact}
+| 		selectdo
+| 			idno = idno + 1
+| 			tpisg220.actp = idno
+| 			db.update(ttpisg220, db.retry, e)
+| 			commit.transaction()
+| 		endselect
+| 	endselect
+}
+
+function extern update.inspectionid.and.vehicle.placement.progress.in.220(	domain	tccprj		i.cprj,
+										domain	tcmcs.str50	i.bohd,
+										domain	tcorno		i.sitm,
+										domain	tcmcs.s200u	i.iref)
+{
+	domain	tcqiv1		a_perc, PoWisePerc
+	domain	tcorno		a_pono, POValue
+	domain	tcmcs.long	PoWiseInid
+	domain	tpentry.mode	PoWiseMode
+	
+	o.wght = 0
+	res.date = 0
+	o.inid = 0
+	flag = 0
+	tot.wght = 0
+	tot.perc = 0
+	
+	select	tpisg207.date, tpisg207.inid, tpisg207.mode,
+		tpisg207.powt, tpisg207.prpo, tpisg207.pono
+	from	tpisg207
+	where	tpisg207.bohd =:i.bohd
+	and	tpisg207.sitm =:i.sitm
+	and	tpisg207.iref =:i.iref
+	order by tpisg207.inid, tpisg207.mode
+	selectdo
+		if tpisg207.inid = o.inid then
+			if tpisg207.mode = tpentry.mode.pck.list then
+				tot.wght = tot.wght - o.wght + tpisg207.powt
+| 				tot.perc = tot.perc - o.perc + tpisg207.prpo
+			endif
+		else
+			tot.wght = tot.wght + tpisg207.powt
+| 			tot.perc = tot.perc + tpisg207.prpo
+		endif		
+		if tpisg207.inid <> o.inid then
+			o.inid = tpisg207.inid
+			o.wght = tpisg207.powt
+			o.mode = tpisg207.mode
+| 			o.perc = tpisg207.prpo
+		endif
+	endselect
+	
+	i.oamt = 0
+	POManufacturingVal = 0
+	TotalPOManufacturingPerc = 0
+	t.cpgv = 0
+	o.cpgv = 0
+	o.inid = 0
+	o.perc = 0
+	
+	select	tpisg239.pwgt,
+		tpisg239.icls
+	from	tpisg239
+	where	tpisg239.cprj = :i.cprj
+	and	tpisg239.iref = :i.iref
+	selectdo
+		res.date = 0
+		chk.least.date(i.cprj,i.bohd, i.sitm, i.iref, res.date)
+		on case etol(tpisg239.icls)	
+		case 1:
+		case 3:
+			tot.val.po = tot.value.of.po(i.cprj,i.iref)
+			if tot.val.po <> 0 then
+				calc.po.perc(i.cprj, i.iref, i.sitm, o.cpgv)
+				
+				select	atpisg207.pono:a_pono
+				from	tpisg207  atpisg207
+				where	atpisg207.bohd =:i.bohd
+				and	atpisg207.sitm =:i.sitm
+				and	atpisg207.iref =:i.iref
+				group by atpisg207.pono
+				selectdo
+					tot.perc = 0
+					select	btpisg207.inid:PoWiseInid, btpisg207.mode:PoWiseMode,
+						btpisg207.prpo:PoWisePerc, btpisg207.pono:POValue
+					from	tpisg207 btpisg207
+					where	btpisg207.bohd =:i.bohd
+					and	btpisg207.sitm =:i.sitm
+					and	btpisg207.iref =:i.iref
+					and	btpisg207.pono =:a_pono
+					order by btpisg207.inid, btpisg207.mode
+					selectdo
+						if PoWiseInid = o.inid then
+							if PoWiseMode = tpentry.mode.pck.list then
+								tot.perc = tot.perc - o.perc + PoWisePerc
+							endif
+						else
+							tot.perc = tot.perc + PoWisePerc
+						endif		
+						if PoWiseInid <> o.inid then
+							o.inid = PoWiseInid
+							o.mode = PoWiseMode
+							o.perc = PoWisePerc
+						endif
+					endselect
+					
+					
+					|if isspace(tpisg220.sitm) then
+| 						i.oamt = order.amnt.of.po(tpisg207.pono,i.iref)
+						i.oamt = order.amnt.of.po(a_pono,i.iref)
+						POManufacturingVal = (tot.perc * i.oamt)/100
+| 						POManufacturingVal = (a_perc * i.oamt)/100
+						if (tot.val.po <> 0) and (POManufacturingVal <> 0) then
+							TotalPOManufacturingPerc = (POManufacturingVal/tot.val.po) * 100
+						endif
+					|else
+| 						TotalPOManufacturingPerc = tpisg207.prpo
+						|TotalPOManufacturingPerc = tot.perc
+					|endif
+					t.cpgv = t.cpgv + (TotalPOManufacturingPerc / o.cpgv)*100
+				endselect
+				
+				if t.cpgv > 99.99 then
+					t.cpgv = 100
+				endif
+				
+				select	tpisg220.cpgv,tpisg220.acsd
+				from	tpisg220	for update
+				where	tpisg220._index1 = {:i.cprj}
+				and	tpisg220.sub1 =:i.iref
+				and	tpisg220.sitm =:i.sitm
+				and	tpisg220.bohd =:i.bohd
+				selectdo
+					if (res.date <> 0) and (t.cpgv <> 0) then
+						tpisg220.cpgv = t.cpgv
+						tpisg220.acsd = res.date
+						db.update(ttpisg220, db.retry, e)
+					endif
+				endselect
+			endif
+		break	
+		case 4: 
+			if tpisg239.pwgt <> 0 then
+				allPOWght = AllPOSubItemWeight(i.cprj, i.iref, i.sitm)
+				
+				calc.po.perc(i.cprj, i.iref, i.sitm, o.cpgv)
+				
+				if (allPOWght <> 0) then
+					wt.perc = (((tot.wght * 100)/allPOWght)*o.cpgv)/100
+				endif
+				
+				select	tpisg220.cpgv,tpisg220.acsd
+				from	tpisg220	for update
+				where	tpisg220._index1 = {:i.cprj}
+				and	tpisg220.sub1 =:i.iref
+				and	tpisg220.sitm =:i.sitm
+				and	tpisg220.bohd =:i.bohd
+				selectdo
+					if (wt.perc <> 0) and  (res.date <> 0) then
+						tpisg220.cpgv = wt.perc
+						tpisg220.acsd = res.date
+						db.update(ttpisg220, db.retry, e)
+					endif
+				endselect
+			endif
+		break
+		endcase
+	commit.transaction()
+	endselect
+}
+
+
+|Asssumption fo function Export.Shipment.and.ReceiptAtSite- Percentage progress in tpisg207 is against the 
+|PO/Item Reference/Sub Item Code not whole Item Reference
+
+function extern Shipment.and.ReceiptAtSite(	
+					domain	tccprj		i.cprj,
+					domain	tcmcs.str50	i.bohd,
+					domain	tcorno		i.sitm,
+					domain	tcmcs.s200u	i.iref)
+{
+	tot.val.po = 0
+	i.po.perc = 0
+	POShipmentVal = 0
+	TotalPOShipmentPerc = 0
+	POShipmentVal = 0
+	POShipmentWeight = 0
+	po.sub.item.wght = 0
+	tot.wght = 0
+	tot.perc = 0
+	t.cpgv = 0
+	res.date = 0
+	
+	select	tpisg207.pono, sum(tpisg207.powt):tot.wght, sum(tpisg207.prpo):tot.perc
+	from	tpisg207
+	where	tpisg207.bohd =:i.bohd
+	and	tpisg207.sitm =:i.sitm
+	and	tpisg207.iref =:i.iref
+	group by tpisg207.pono
+	selectdo
+		select	tpisg239.icls
+		from	tpisg239
+		where	tpisg239.cprj =:i.cprj
+		and	tpisg239.iref =:i.iref
+		selectdo		
+			on case etol(tpisg239.icls)	
+			case 1:
+			case 3:
+				tot.val.po = tot.value.of.po(i.cprj,i.iref)
+				break	
+			endcase
+		endselect
+
+		res.date = 0
+		chk.least.date(i.cprj,i.bohd, i.sitm, i.iref, res.date)
+		|Weight Denominator
+		select	tpisg239.pwgt,
+			tpisg239.icls
+		from	tpisg239
+		where	tpisg239.cprj =:i.cprj
+		and	tpisg239.iref =:i.iref
+		selectdo	
+			on case etol(tpisg239.icls)	
+			case 1:
+			case 3:
+				if tot.val.po <> 0 then
+					calc.po.perc(i.cprj, i.iref, i.sitm, i.po.perc)
+| 					if isspace(tpisg220.sitm) then
+						i.oamt = order.amnt.of.po(tpisg207.pono,i.iref)
+						POShipmentVal = (tot.perc * i.oamt)/100
+						TotalPOShipmentPerc = (POShipmentVal/tot.val.po) * 100
+| 					else
+| 						TotalPOShipmentPerc = sum.tpgv
+| 					endif
+					if (i.po.perc <> 0) then
+						t.cpgv = t.cpgv + (TotalPOShipmentPerc / i.po.perc)*100
+					endif
+				endif
+				break	
+			case 4:	
+				if tpisg239.pwgt <> 0 then
+					calc.po.perc(i.cprj, i.iref, i.sitm, i.po.perc)
+					POShipmentWeight = tot.wght
+					po.sub.item.wght = AllPOSubItemWeight(i.cprj, i.iref, i.sitm)
+					if (po.sub.item.wght <> 0) then
+						t.cpgv = t.cpgv + ((POShipmentWeight/po.sub.item.wght) * i.po.perc)
+					endif
+				endif
+				break
+			endcase
+		endselect
+	endselect
+	
+	
+	if t.cpgv > 99.99 then
+		t.cpgv = 100
+	endif
+	
+	select	tpisg220.cpgv,tpisg220.acsd
+	from	tpisg220	for update
+	where	tpisg220._index1 = {:i.cprj}
+	and	tpisg220.sub1 =:i.iref
+	and	tpisg220.sitm =:i.sitm
+	and	tpisg220.bohd =:i.bohd
+	selectdo
+		if (t.cpgv <> 0) and (res.date <> 0) then
+			tpisg220.cpgv = t.cpgv
+			tpisg220.acsd = res.date
+			db.update(ttpisg220,db.retry,e)
+			commit.transaction()
+		endif
+	endselect
+	
+	
+
+}
+					
+					
+function extern calc.po.perc(	domain	tccprj		i.cprj,
+				domain	tcmcs.s200u	i.iref,
+				domain	tcorno		i.sitm,
+			ref 	domain	tcperc		o.cpgv)
+{
+	o.cpgv = 0
+	select	atpisg220.cpgv:o.cpgv
+	from	tpisg220	atpisg220
+	where	atpisg220._index1 = {:i.cprj}
+	and	atpisg220.sub1 =:i.iref
+	|and	atpisg220.sitm =:i.sitm
+	and	atpisg220.bohd = "CT_POAPPROVED"
+	selectdo
+	endselect
+}
+
+function chk.least.date(domain	tccprj		var.cprj,
+			domain	tcmcs.str50	var.bohd,
+			domain	tcorno		var.sitm,
+			domain	tcmcs.s200u	var.iref,
+		   ref 	domain tfgld.date	o.date)
+{
+	domain	tcmcs.str11	result
+
+	o.date = 0
+	result = ""
+	
+	select min(tpisg207.date):o.date
+	from	tpisg207
+	where	tpisg207.cprj =:var.cprj
+	and	tpisg207.bohd =:var.bohd
+	and	tpisg207.sitm =:var.sitm
+	and	tpisg207.iref =:var.iref
+	group by tpisg207.bohd, tpisg207.sitm, tpisg207.iref
+	selectdo
+	endselect
+	
+	result = sprintf$("%D(%2d-%2m-%4Y)",o.date)
+}
+
+function extern update.poissue.in.220(domain	tccprj		i.cprj,
+					domain	tcorno		i.sitm)
+{
+	var.perc = 0
+	var.perc1 = 0
+	count.rec = 0
+	
+	select	tpisg208.pono, tpisg208.issu, tpisg208.accp
+	from	tpisg208 
+	where	tpisg208.cprj = :i.cprj
+	selectdo
+		select	dmisg140.iref, tdisg002.wght 
+		from	tdisg002, dmisg140
+ 		where	tdisg002.orno = :tpisg208.pono
+		|where	tdisg002.orno = "P10121988"
+		and	tdisg002.docn = dmisg140.docn
+		selectdo
+			h.flag = 0
+			if (tpisg208.issu = tcyesno.no) or (tpisg208.accp = tcyesno.no) then
+				h.flag = 1
+			else
+				h.flag = 0
+			endif
+			percentage.by.count(dmisg140.iref, i.cprj)
+			percentage.by.weight(dmisg140.iref, i.cprj)
+			check.and.update.220(dmisg140.iref, i.cprj,i.sitm)
+		endselect
+	endselect
+}
+
+function long check.date(domain tcdate	i.date)
+{
+	long yy,mm,dd, hrs, mins, secs, chk.dte
+	
+	chk.dte = 0
+	
+	utc.to.date(i.date,yy,mm,dd, hrs, mins, secs)
+	if yy < 2000 then
+		chk.dte = 1
+	else
+		chk.dte = 0
+	endif
+	
+	return(chk.dte)
+}
+
+function domain tcdate poapproved.least.date(domain	tcmcs.s200u	i.iref)
+{	
+	domain	tcdate	ret.date, admisg140pois
+	long		yy,mm,dd,hrs,mins,secs
+	
+	admisg140pois = 0
+	
+	select	admisg140.pois:admisg140pois
+	from	dmisg140  admisg140 
+	where	admisg140.iref = :i.iref
+	and	admisg140.cprj = :tpisg220.cprj
+	and 	admisg140.pois <> 0
+	order by admisg140.pois asc
+	as set with 1 rows
+	selectdo
+	endselect
+		
+	utc.to.date(admisg140pois,yy,mm,dd,hrs,mins,secs)
+	ret.date = date.to.num(yy,mm,dd)
+	
+	if yy < 2000 then
+		return(0)
+	endif
+	return(ret.date)
+}
+
+function percentage.by.count(
+				domain	tcmcs.s200u	i.iref,
+				domain	tccprj		i.cprj
+				)
+{
+	domain	tcwght		sum.wght
+		
+	count.rec = 0
+	tot.wght = 0
+	sum.wght = 0
+		
+	select	count(dmisg140.iref):v.count1
+	from	dmisg140
+	where	dmisg140.iref =:i.iref
+	and	dmisg140.cprj =:i.cprj
+	and	dmisg140.orgn ="ISG"
+	and	dmisg140.cext = tcyesno.yes	|#New Flag added - CHILD EXIST in PMDL
+	selectdo
+	endselect
+
+	select	admisg140.pois:count.adct,
+		admisg140.posw:sum.wght
+	from	dmisg140 admisg140
+	where	admisg140.iref =:i.iref
+	and	admisg140.cprj =:i.cprj
+	and	admisg140.orgn ="ISG"
+	and	admisg140.cext = tcyesno.yes	|#New Flag added - CHILD EXIST in PMDL
+	selectdo
+		if not check.date(count.adct) then
+			count.rec = count.rec + 1
+			tot.wght = tot.wght + sum.wght
+		endif
+	endselect
+	
+	if (count.rec <> 0) and (v.count1 <> 0)  then
+		var.perc = (count.rec*100)/v.count1
+	endif
+}
+
+function percentage.by.weight(	domain	tcmcs.s200u	i.iref,
+				domain	tccprj		i.cprj
+				)
+{
+	select	tpisg239.pwgt, tpisg239.icls
+	from	tpisg239
+	where	tpisg239.cprj =:i.cprj
+	and	tpisg239.iref =:i.iref
+	selectdo
+	endselect
+	
+	if (tot.wght <> 0) and (tpisg239.pwgt <> 0)  then
+		var.perc1 = (tot.wght*100)/tpisg239.pwgt
+	endif
+	
+	if tpisg239.icls <> tpitem.class.self.engg then
+		var.perc1 = 0
+	endif
+}
+
+function check.and.update.220(	domain	tcmcs.s200u	i.iref,
+				domain	tccprj		i.cprj,
+				domain	tcorno		i.sitm)
+{
+	select	tpisg220.cpgv,tpisg220.acsd
+	from	tpisg220	for update
+	where	tpisg220._index1 = {:i.cprj}
+	and	tpisg220.sub1 =:i.iref
+	and	tpisg220.sitm =:i.sitm
+	and	tpisg220.bohd = "CT_ISSUEPO"
+	selectdo
+		if (var.perc1 > var.perc) and (var.perc1 <= 100) then
+			if h.flag = 1 then
+				tpisg220.cpgv =  var.perc1/2
+			else
+				tpisg220.cpgv =  var.perc1
+			endif
+			if tpisg220.cpgv <> 0 then
+				tpisg220.acsd = poapproved.least.date(i.iref)
+			endif
+			db.update(ttpisg220, db.retry, e)
+		else
+			if h.flag = 1 then
+				var.perc = var.perc /2
+				
+				if (var.perc > 100) then
+					tpisg220.cpgv = 100
+				else
+					tpisg220.cpgv = var.perc
+				endif
+			else
+				if (var.perc > 100) then
+					tpisg220.cpgv = 100
+				else
+					tpisg220.cpgv = var.perc
+				endif
+			endif
+			if tpisg220.cpgv <> 0 then
+				tpisg220.acsd = poapproved.least.date(i.iref)
+			endif
+			db.update(ttpisg220, db.retry, e)
+		endif
+		commit.transaction()
+	endselect
+}
+
+
+function extern update.receipt.pi.irn.in.tpisg220(						|#Not in use
+						domain	tccprj			i.cprj,
+						domain tcmcs.s200u		i.iref,
+						domain	tcorno			i.sitm)
+{
+	domain	tcqiv1		OrderAmount, TotPiPerc
+	TotPiPerc = 0
+	OrderAmount = 0
+	OrderAmount = tot.value.of.po(i.cprj,i.iref)
+	
+	select	tfacp100.cdf_cprj, tfacp100.cdf_pono:order.no, tfisg605.iref, sum(tfisg605.amnt):tot.amnt		
+	from	tfisg605, tfacp100
+	where	tfisg605.docn = tfacp100.ninv	
+	and	tfisg605.iref = :i.iref
+	and	tfacp100.cdf_cprj = :i.cprj
+	group by tfacp100.cdf_cprj, tfacp100.cdf_pono, tfisg605.iref
+	selectdo
+		res.perc = 0 
+		
+		po.perc = 0
+		res.perc = 0
+		PiIrnPerc = 0
+		
+		if OrderAmount <> 0 then
+			res.perc = (tot.amnt / OrderAmount)
+		endif
+		
+		
+		calc.po.perc(i.cprj, i.iref, i.sitm, po.perc)
+		
+		PiIrnPerc = 0
+		
+		if po.perc <> 0 then
+			PiIrnPerc = (res.perc * po.perc)
+		endif
+		
+		TotPiPerc = TotPiPerc + PiIrnPerc
+		
+	endselect
+
+	if TotPiPerc > 100 then
+		TotPiPerc = 100
+	endif
+
+	select	tpisg220.cpgv, tpisg220.acsd
+	from	tpisg220	for update
+	where	tpisg220._index1 = {:i.cprj}
+	and	tpisg220.sub1 =:i.iref
+	and	tpisg220.bohd ="CT_RECEIPTPIIRN"
+	and	tpisg220.sitm =:i.sitm
+	selectdo
+		if (TotPiPerc <> 0) then
+			tpisg220.acsd = date.num()
+			tpisg220.cpgv = TotPiPerc
+			db.update(ttpisg220, db.retry, e)
+			commit.transaction()
+		endif
+	endselect
+		
+
+}
+
+function extern update.pmdl.through.advance(domain 	tccprj		i.cprj,
+				      domain	tcmcs.s200u	i.iref,
+				      domain	tcmcs.str50	i.bohd)
+{
+	domain	tcdate		min.revdt,min.pmtdt, comp.date
+	domain tcmcs.int	max.vrsn
+	
+	comp.date = date.to.utc(2000,01,01,00,00,00)
+	min.revdt = 0
+	min.pmtdt = 0
+	max.vrsn = 0
+	
+| 	For Each Drawing of Item Reference
+| 		If Approved PO found against Drawing then
+| 			If Latest PO Revision has advance payment term then
+| 				Set PMDL.ADVApplicable flag = Yes
+| 				If Advance paid then
+| 					set PMDL.AdvanceDate = Least Payment Date
+| 				else
+| 					set PMDL.AdvanceDate = BLANK
+| 				endif
+| 			else			
+| 				Set PMDL.Applicable flag = No					
+| 				set PMDL.AdvanceDate = PO Rev zero approval date			
+| 			endif
+| 		else
+| 			set PMDL.AdvanceDate = BLANK
+| 			PMDL.ADVApplicable flag = Yes
+| 		endif		 
+| 	End loop
+
+	|*For Each Drawing of Item Reference
+	select	dmisg140.docn
+	from	dmisg140
+	where	dmisg140._index2 = {:i.cprj}
+	and	dmisg140.iref = :i.iref
+	and	dmisg140.orgn ="ISG"
+	and	dmisg140.cext = tcyesno.yes	|#New Flag added - CHILD EXIST in PMDL
+	group by dmisg140.docn
+	selectdo
+		min.revdt = 0
+		min.pmtdt = 0
+		max.vrsn = 0
+		if trim$(i.bohd) = "CT_FIRSTADVANCERELEASE" then
+			select	dmisg140.fadt, dmisg140.upct
+			from	dmisg140	for update
+			where	dmisg140._index2 = {:i.cprj}
+			and	dmisg140.iref =:i.iref
+			and	dmisg140.docn =:dmisg140.docn
+			selectdo
+				|*If Approved PO found against Drawing then
+				
+				select tdisg002.orno, min(tdmsl400.apdt):min.revdt 
+				from tdisg002 , tdmsl400
+				where tdisg002.orno = tdmsl400.orno
+				and tdisg002.docn = :dmisg140.docn
+				and tdmsl400.work = 3
+				group by tdisg002.orno
+				order by tdisg002.orno
+				selectdo					
+					|*If Latest PO Revision has advance payment term then
+					select max(tdmsl400.vrsn):max.vrsn
+					from tdmsl400 
+					where tdmsl400._index1 = {:tdisg002.orno}
+					and tdmsl400.work = 3
+					selectdo endselect
+					
+					select	tcisg001.catg
+					from	tcisg001
+					where	tcisg001._index1 = {:tdisg002.orno}
+					and	tcisg001.catg = 1
+					and 	tcisg001.srno = 1
+					and 	tcisg001.vrsn = :max.vrsn
+					as set with 1 rows
+					selectdo
+						|*Set PMDL.ADVApplicable flag = Yes
+						dmisg140.adap = tcyesno.yes
+						
+						|*If Advance paid then
+						|*	set PMDL.AdvanceDate = Least Payment Date
+						|*else
+						|*	set PMDL.AdvanceDate = BLANK
+						|*endif
+						select min(tfmsl020.prdt):min.pmtdt 
+						from tfmsl020 
+						where tfmsl020.orno = :tdisg002.orno
+						and tfmsl020.optn = 3 
+						and tfmsl020.stat = 30
+						and tfmsl020.srno = 1
+						selectdo 
+							dmisg140.fadt = min.pmtdt
+						selectempty
+							dmisg140.fadt = 0
+						endselect
+					selectempty
+						|*else			
+						|*	Set PMDL.Applicable flag = No					
+						|*	set PMDL.AdvanceDate = PO Rev zero approval date			
+						|*endif	
+						dmisg140.adap = tcyesno.no
+						dmisg140.fadt = min.revdt
+					endselect
+				selectempty					
+						|*else
+						|*	set PMDL.AdvanceDate = BLANK
+						|*	PMDL.ADVApplicable flag = Yes
+						|*endif		 
+					|*End loop
+					dmisg140.adap = tcyesno.yes
+					dmisg140.fadt = 0
+				endselect
+				db.update(tdmisg140,db.retry,e)
+									
+				if e = 0 then
+					commit.transaction()
+				else
+					abort.transaction()
+				endif
+			endselect
+		else
+			if trim$(i.bohd) = "CT_RESTADVANCERELEASE" then
+				select	dmisg140.itdt, dmisg140.upct
+				from	dmisg140	for update
+				where	dmisg140._index2 = {:i.cprj}
+				and	dmisg140.iref =:i.iref
+				and	dmisg140.docn =:dmisg140.docn
+| 				and	(dmisg140.itdt = 0
+| 				or	dmisg140.itdt < :comp.date)
+				selectdo
+					|*If Approved PO found against Drawing then					
+					select tdisg002.orno, min(tdmsl400.apdt):min.revdt 
+					from tdisg002 , tdmsl400
+					where tdisg002.orno = tdmsl400.orno
+					and tdisg002.docn = :dmisg140.docn
+					and tdmsl400.work = 3
+					group by tdisg002.orno
+					order by tdisg002.orno
+					selectdo					
+						|*If Latest PO Revision has advance payment term then
+						select max(tdmsl400.vrsn):max.vrsn
+						from tdmsl400 
+						where tdmsl400._index1 = {:tdisg002.orno}
+						and tdmsl400.work = 3
+						selectdo endselect
+						
+						select	tcisg001.catg
+						from	tcisg001
+						where	tcisg001._index1 = {:tdisg002.orno}
+						and	tcisg001.catg = 1
+						and 	tcisg001.srno > 1
+						and 	tcisg001.vrsn = :max.vrsn
+						as set with 1 rows
+						selectdo
+							|*Set PMDL.ADVApplicable flag = Yes
+							dmisg140.inap = tcyesno.yes
+							
+							|*If Advance paid then
+							|*	set PMDL.AdvanceDate = Least Payment Date
+							|*else
+							|*	set PMDL.AdvanceDate = BLANK
+							|*endif
+							select min(tfmsl020.prdt):min.pmtdt 
+							from tfmsl020 
+							where tfmsl020.orno = :tdisg002.orno
+							and tfmsl020.optn = 3 
+							and tfmsl020.stat = 30
+							and tfmsl020.srno > 1
+							selectdo 
+								dmisg140.itdt = min.pmtdt
+							selectempty
+								dmisg140.itdt = 0
+							endselect
+						selectempty
+							|*else			
+							|*	Set PMDL.Applicable flag = No					
+							|*	set PMDL.AdvanceDate = PO Rev zero approval date			
+							|*endif	
+							dmisg140.inap = tcyesno.no
+							dmisg140.itdt = min.revdt
+						endselect
+					selectempty						
+							|*else
+							|*	set PMDL.AdvanceDate = BLANK
+							|*	PMDL.ADVApplicable flag = Yes
+							|*endif		 
+						|*End loop
+						dmisg140.inap = tcyesno.yes
+						dmisg140.itdt = 0
+					endselect
+					db.update(tdmisg140,db.retry,e)
+										
+					if e = 0 then
+						commit.transaction()
+					else
+						abort.transaction()
+					endif
+				endselect
+			endif
+		endif
+	endselect
+}
+
+function extern update.project.activity.master.through.advance(domain 	tccprj		i.cprj,
+									domain	tcmcs.s200u	i.iref,
+									domain	tcmcs.str50	i.bohd)
+{
+	domain tfgld.date MinAdvanceDate,	MinIntermediatoryAdvanceDate
+	domain tcdate MinAdvanceDateUTC, MinIntermediatoryAdvanceDateUTC
+	domain tcqiv1 CountPerc , WeightPerc,TotalCountPerc,TotalWeightPerc,FinalPerc
+	domain	tcamnt	NoOfPODrawings, NoOfItemRefDrawings, POAdvPaid, POAdvToBePaid, ItemRefPOWeight
+	domain	tcpono max.vrsn
+	
+	
+|*For each Record in activity mster where handle is CT_FirstAdvance
+	|* If PO Found against Item Reference
+	|* 	For Each PO of Item Reference	
+	|* 		If Latest PO Revision has advance payment term then
+	|* 			CountPerc = no. of drawings released with particular PO/ Total no. of drawings agaist this item reference) % * 
+	|* 					(Total Actual Amount of Ist Advance Paid / Amount of Ist advance to be Paid against Latest PO)
+	|* 			WeightPerc = Weight of drawings released with particular PO/Total  Total item reference weight)%] * 
+	|* 					(Total Actual Amount of Ist Advance Paid /Total Amount of Ist advance to be Paid against Latest PO)
+	|* 			
+	|* 		else			
+	|* 			CountPerc = (no. of drawings released with particular PO/ Total no. of drawings agaist this item reference) % 
+	|* 			WeightPerc = (Weight of drawings released with particular PO/ Total item reference weight)%] 
+	|* 		endif
+	|* 		TotalCountPerc = TotalCountPerc + CountPerc
+	|* 		TotalWeightPerc = TotalWeightPerc + WeightPerc		
+	|8 	endloop
+	|* 	if TotalCountPerc > TotalWeightPerc then
+	|* 		Set Activity Master Progress = TotalCountPerc
+	|* 	else
+	|* 		Set Activity Master Progress = TotalWeightPerc
+	|* 	endif
+	|* else
+	|* 	Set ActivityMasterProgress = 0		 
+	|* End if
+|* endloop
+
+	|*For each Record in activity mster where handle is CT_FirstAdvance
+	|* If PO Found against Item Reference
+	|* For Each PO of Item Reference
+	
+	tpisg239.pwgt = 0
+	tpisg239.icls = ltoe(0)
+	
+	select	tpisg239.pwgt,
+		tpisg239.icls
+	from	tpisg239
+	where	tpisg239.cprj = :i.cprj
+	and	tpisg239.iref = :i.iref	
+	selectdo endselect
+	
+	TotalCountPerc = 0
+	TotalWeightPerc = 0	
+	FinalPerc = 0
+	
+	on case trim$(i.bohd) 
+	case "CT_FIRSTADVANCERELEASE":
+			
+		select	distinct tdisg002.orno
+		from	dmisg140,tdisg002	
+		where	tdisg002.docn = dmisg140.docn
+		and 	dmisg140._index2 = {:i.cprj}
+		and	dmisg140.iref =:i.iref
+		and 	dmisg140.orgn ="ISG"
+		and	dmisg140.cext = tcyesno.yes	|#New Flag added - CHILD EXIST in PMDL
+		selectdo
+			CountPerc = 0
+			NoOfPODrawings = 0
+			NoOfItemRefDrawings = 0
+			POAdvPaid = 0
+			POAdvToBePaid = 0
+			WeightPerc = 0
+			ItemRefPOWeight = 0
+			max.vrsn = 0
+			
+			select	distinct tdisg002.docn
+			from	dmisg140,tdisg002	
+			where	tdisg002.docn = dmisg140.docn
+			and 	dmisg140._index2 = {:i.cprj}
+			and	dmisg140.iref =:i.iref
+			and 	tdisg002.orno = :tdisg002.orno
+			and 	dmisg140.orgn ="ISG"
+			and	dmisg140.cext = tcyesno.yes	|#New Flag added - CHILD EXIST in PMDL
+			selectdo 
+				NoOfPODrawings = NoOfPODrawings + 1
+			endselect
+			
+			select	count(*):NoOfItemRefDrawings from dmisg140	
+			where	dmisg140._index2 = {:i.cprj}
+			and	dmisg140.iref =:i.iref
+			and 	dmisg140.orgn ="ISG"
+			and	dmisg140.cext = tcyesno.yes	|#New Flag added - CHILD EXIST in PMDL
+			selectdo
+			endselect
+			
+			select	sum(tdisg002.wght):ItemRefPOWeight
+			from	dmisg140,tdisg002	
+			where	tdisg002.docn = dmisg140.docn
+			and 	dmisg140._index2 = {:i.cprj}
+			and	dmisg140.iref =:i.iref
+			and 	tdisg002.orno = :tdisg002.orno
+			and 	dmisg140.orgn ="ISG"
+			and	dmisg140.cext = tcyesno.yes	|#New Flag added - CHILD EXIST in PMDL
+			selectdo
+			endselect					
+			
+			|* If Latest PO Revision has advance payment term then				
+			select max(tdmsl400.vrsn):max.vrsn 
+			from tdmsl400
+			where tdmsl400.orno = :tdisg002.orno
+			and tdmsl400.work = 3				
+			selectdo 
+				select	tcisg001.catg
+				from	tcisg001
+				where	tcisg001._index1 = {:tdisg002.orno, :max.vrsn}
+				and	tcisg001.catg = 1
+				and 	tcisg001.srno = 1
+				as set with 1 rows
+				selectdo
+					|* CountPerc = no. of drawings released with particular PO/ Total no. of drawings agaist this item reference) % * 
+					|* (Total Actual Amount of Ist Advance Paid / Amount of Ist advance to be Paid against Latest PO)
+									
+					select	distinct tfmsl020.adrq,tfmsl020.bamt,tfmsl020.aprc, tfmsl020.orno, tfmsl020.srno
+					from	tfmsl020
+					where	tfmsl020.orno = :tdisg002.orno
+					and	tfmsl020.optn = 3
+					and	tfmsl020.srno = 1
+					and 	tfmsl020.stat = 30
+					selectdo
+						POAdvPaid = POAdvPaid + (tfmsl020.bamt * (tfmsl020.aprc/100))
+					endselect
+					
+					select	tcisg001.amnt:POAdvToBePaid
+					from	tcisg001
+					where	tcisg001._index1 = {:tdisg002.orno, :max.vrsn}
+					and	tcisg001.catg = 1
+					and	tcisg001.srno = 1
+					selectdo endselect
+					
+					if (NoOfPODrawings <> 0) and (NoOfItemRefDrawings <> 0) and (POAdvPaid <> 0) and (POAdvToBePaid <> 0) then
+						CountPerc = (NoOfPODrawings/NoOfItemRefDrawings) * (POAdvPaid/POAdvToBePaid)*100
+					endif
+											
+					|* WeightPerc = Weight of drawings released with particular PO/Total  Total item reference weight)%] * 
+					|* (Total Actual Amount of Ist Advance Paid /Total Amount of Ist advance to be Paid against Latest PO)
+														
+					if tpisg239.icls = tpitem.class.self.engg then
+						if tpisg239.pwgt > 0 then
+							if (ItemRefPOWeight <> 0) and (POAdvPaid <> 0) and (POAdvTOBePaid <> 0) then
+								WeightPerc = (ItemRefPOWeight/tpisg239.pwgt) * (POAdvPaid/POAdvTOBePaid)*100
+							endif
+						else
+							WeightPerc = 0		
+						endif
+					else 
+						if tpisg239.icls = tpitem.class.bought.out then
+							WeightPerc = 0
+						endif
+					endif	
+				selectempty
+					|*else			
+					|*CountPerc = (no. of drawings released with particular PO/ Total no. of drawings agaist this item reference) % 
+					|*WeightPerc = (Weight of drawings released with particular PO/ Total item reference weight)%] 
+					|*endif
+					if (NoOfPODrawings <> 0) and (NoOfItemRefDrawings <> 0) then
+						CountPerc = (NoOfPODrawings/NoOfItemRefDrawings)*100
+					endif
+					
+					if (ItemRefPOWeight <> 0) and (tpisg239.pwgt <> 0) then
+						WeightPerc = (ItemRefPOWeight/tpisg239.pwgt) * 100		
+					endif
+				endselect
+			endselect
+			|* TotalCountPerc = TotalCountPerc + CountPerc
+			|* TotalWeightPerc = TotalWeightPerc + WeightPerc
+			
+			TotalCountPerc = TotalCountPerc + CountPerc
+			TotalWeightPerc = TotalWeightPerc + WeightPerc		
+			
+		endselect
+
+		|*if TotalCountPerc > TotalWeightPerc then
+		|*	Set Activity Master Progress = TotalCountPerc
+		|*else
+		|*	Set Activity Master Progress = TotalWeightPerc
+		|*endif
+		
+		if TotalCountPerc > TotalWeightPerc then
+			FinalPerc = TotalCountPerc
+		else
+			FinalPerc = TotalWeightPerc
+		endif
+		break
+	case "CT_RESTADVANCERELEASE":		
+		
+		select	distinct tdisg002.orno
+		from	dmisg140,tdisg002	
+		where	tdisg002.docn = dmisg140.docn
+		and 	dmisg140._index2 = {:i.cprj}
+		and	dmisg140.iref =:i.iref
+		and	dmisg140.orgn ="ISG"
+		and	dmisg140.cext = tcyesno.yes	|#New Flag added - CHILD EXIST in PMDL
+		selectdo
+			CountPerc = 0
+			NoOfPODrawings = 0
+			NoOfItemRefDrawings = 0
+			POAdvPaid = 0
+			POAdvToBePaid = 0
+			WeightPerc = 0
+			ItemRefPOWeight = 0
+			max.vrsn = 0
+			
+			|* If Latest PO Revision has advance payment term then				
+			select max(tdmsl400.vrsn):max.vrsn 
+			from tdmsl400
+			where tdmsl400.orno = :tdisg002.orno
+			and tdmsl400.work = 3				
+			selectdo 
+				select	distinct tdisg002.docn
+				from	dmisg140,tdisg002	
+				where	tdisg002.docn = dmisg140.docn
+				and 	dmisg140._index2 = {:i.cprj}
+				and	dmisg140.iref =:i.iref
+				and 	tdisg002.orno = :tdisg002.orno
+				and 	dmisg140.orgn ="ISG"
+				and	dmisg140.cext = tcyesno.yes	|#New Flag added - CHILD EXIST in PMDL
+				selectdo 
+					NoOfPODrawings = NoOfPODrawings + 1
+				endselect
+				
+				select	count(*):NoOfItemRefDrawings from dmisg140	
+				where	dmisg140._index2 = {:i.cprj}
+				and	dmisg140.iref =:i.iref
+				and 	dmisg140.orgn ="ISG"
+				and	dmisg140.cext = tcyesno.yes	|#New Flag added - CHILD EXIST in PMDL
+				selectdo
+				endselect
+				
+				select	sum(tdisg002.wght):ItemRefPOWeight
+				from	dmisg140,tdisg002	
+				where	tdisg002.docn = dmisg140.docn
+				and 	dmisg140._index2 = {:i.cprj}
+				and	dmisg140.iref =:i.iref
+				and 	tdisg002.orno = :tdisg002.orno
+				and 	dmisg140.orgn ="ISG"
+				and	dmisg140.cext = tcyesno.yes	|#New Flag added - CHILD EXIST in PMDL
+				selectdo
+				endselect
+					
+				select	tcisg001.catg
+				from	tcisg001
+				where	tcisg001._index1 = {:tdisg002.orno, :max.vrsn}
+				and	tcisg001.catg = 1
+				and 	tcisg001.srno > 1
+				as set with 1 rows
+				selectdo
+					|* CountPerc = no. of drawings released with particular PO/ Total no. of drawings agaist this item reference) % * 
+					|* (Total Actual Amount of Ist Advance Paid / Amount of Ist advance to be Paid against Latest PO)
+					
+					select	distinct tfmsl020.adrq,tfmsl020.bamt,tfmsl020.aprc, tfmsl020.orno, tfmsl020.srno
+					from	tfmsl020
+					where	tfmsl020.orno = :tdisg002.orno
+					and	tfmsl020.optn = 3
+					and	tfmsl020.srno > 1
+					and 	tfmsl020.stat = 30
+					selectdo
+						POAdvPaid = POAdvPaid + (tfmsl020.bamt * (tfmsl020.aprc/100))
+					endselect
+					
+					select	sum(tcisg001.amnt):POAdvToBePaid
+					from	tcisg001
+					where	tcisg001._index1 = {:tdisg002.orno, :max.vrsn}
+					and	tcisg001.catg = 1
+					and	tcisg001.srno > 1
+					selectdo endselect
+					
+					if (NoOfPODrawings <> 0) and (NoOfItemRefDrawings <> 0) and (POAdvPaid <> 0) and (POAdvToBePaid <> 0) then
+						CountPerc = (NoOfPODrawings/NoOfItemRefDrawings) * (POAdvPaid/POAdvToBePaid)*100
+					endif						
+					|* WeightPerc = Weight of drawings released with particular PO/Total  Total item reference weight)%] * 
+					|* (Total Actual Amount of Ist Advance Paid /Total Amount of Ist advance to be Paid against Latest PO)
+														
+					if tpisg239.icls = tpitem.class.self.engg then
+						if tpisg239.pwgt > 0 then
+							if (ItemRefPOWeight <> 0) and (POAdvPaid <> 0) and (POAdvTOBePaid <> 0) then
+								WeightPerc = (ItemRefPOWeight/tpisg239.pwgt) * (POAdvPaid/POAdvTOBePaid)*100
+							endif
+						else
+							WeightPerc = 0		
+						endif
+					else 
+						if tpisg239.icls = tpitem.class.bought.out then
+							WeightPerc = 0
+						endif
+					endif
+				selectempty
+					|*else			
+					|*CountPerc = (no. of drawings released with particular PO/ Total no. of drawings agaist this item reference) % 
+					|*WeightPerc = (Weight of drawings released with particular PO/ Total item reference weight)%] 
+					|*endif
+					if (NoOfPODrawings <> 0) and (NoOfItemRefDrawings <> 0) then
+						CountPerc = (NoOfPODrawings/NoOfItemRefDrawings)*100
+					endif
+					if (ItemRefPOWeight <> 0) and (tpisg239.pwgt <> 0) then
+						WeightPerc = (ItemRefPOWeight/tpisg239.pwgt) * 100
+					endif
+				endselect
+			endselect
+			|* TotalCountPerc = TotalCountPerc + CountPerc
+			|* TotalWeightPerc = TotalWeightPerc + WeightPerc
+			
+			TotalCountPerc = TotalCountPerc + CountPerc
+			TotalWeightPerc = TotalWeightPerc + WeightPerc		
+			
+		endselect
+
+		|*if TotalCountPerc > TotalWeightPerc then
+		|*	Set Activity Master Progress = TotalCountPerc
+		|*else
+		|*	Set Activity Master Progress = TotalWeightPerc
+		|*endif
+		
+		if TotalCountPerc > TotalWeightPerc then
+			FinalPerc = TotalCountPerc
+		else
+			FinalPerc = TotalWeightPerc
+		endif
+	endcase
+		
+	domain	tcdate		chk.date
+	chk.date = date.to.utc(2000,01,01,00,00,00)
+	
+	select	tpisg220.*
+	from	tpisg220 for update
+	where	tpisg220._index1 = {:i.cprj}	
+	and	tpisg220.sub1 = :i.iref
+	and	tpisg220.bohd = :i.bohd	
+	selectdo
+		MinAdvanceDate = 0
+		MinIntermediatoryAdvanceDate = 0
+		MinAdvanceDateUTC = 0
+		MinIntermediatoryAdvanceDateUTC = 0
+		if trim$(i.bohd) = "CT_FIRSTADVANCERELEASE" then
+			select	min(dmisg140.fadt):MinAdvanceDateUTC
+			from	dmisg140  
+			where	dmisg140.iref = :tpisg220.sub1
+			and 	dmisg140.cprj = :tpisg220.cprj
+			and 	dmisg140.fadt <> 0
+			and	dmisg140.orgn ="ISG"
+			and	dmisg140.cext = tcyesno.yes	|#New Flag added - CHILD EXIST in PMDL
+			selectdo
+			endselect
+			if MinAdvanceDateUTC > chk.date then 
+				change.utc.to.date(MinAdvanceDateUTC, MinAdvanceDate)
+				tpisg220.acsd = MinAdvanceDate
+			else
+				tpisg220.acsd = 0
+			endif
+		else
+			if trim$(i.bohd) = "CT_RESTADVANCERELEASE" then
+				select	min(dmisg140.itdt):MinIntermediatoryAdvanceDateUTC
+				from	dmisg140  
+				where	dmisg140.iref = :tpisg220.sub1
+				and 	dmisg140.cprj = :tpisg220.cprj
+				and 	dmisg140.itdt <> 0
+				and	dmisg140.orgn ="ISG"
+				and	dmisg140.cext = tcyesno.yes	|#New Flag added - CHILD EXIST in PMDL
+				selectdo
+				endselect
+			endif
+			if MinIntermediatoryAdvanceDateUTC > chk.date then 
+				change.utc.to.date(MinIntermediatoryAdvanceDateUTC, MinIntermediatoryAdvanceDate)
+				tpisg220.acsd =MinIntermediatoryAdvanceDate
+			else
+				tpisg220.acsd = 0
+			endif
+		endif
+		tpisg220.cpgv = FinalPerc
+		ret = db.update(ttpisg220,db.retry,e)
+	selectempty
+		select	tpisg220.*
+		from	tpisg220 for update
+		where	tpisg220._index1 = {:i.cprj}
+		and	tpisg220.cact = :i.iref
+		and	tpisg220.bohd = :i.bohd
+		selectdo
+			MinAdvanceDate = 0
+			MinIntermediatoryAdvanceDate = 0
+			MinAdvanceDateUTC = 0
+			MinIntermediatoryAdvanceDateUTC = 0
+			if trim$(i.bohd) = "CT_FIRSTADVANCERELEASE" then
+				select	min(dmisg140.fadt):MinAdvanceDateUTC
+				from	dmisg140  
+				where	dmisg140.iref = :tpisg220.sub1
+				and 	dmisg140.cprj = :tpisg220.cprj
+				and 	dmisg140.fadt <> 0
+				and	dmisg140.orgn ="ISG"
+				and	dmisg140.cext = tcyesno.yes	|#New Flag added - CHILD EXIST in PMDL
+				selectdo
+				endselect
+				if MinAdvanceDateUTC > chk.date then
+					change.utc.to.date(MinAdvanceDateUTC, MinAdvanceDate)
+					tpisg220.acsd = MinAdvanceDate
+				else
+					tpisg220.acsd = 0
+				endif
+			else
+				if trim$(i.bohd) = "CT_RESTADVANCERELEASE" then
+					select	min(dmisg140.itdt):MinIntermediatoryAdvanceDateUTC
+					from	dmisg140  
+					where	dmisg140.iref = :tpisg220.sub1
+					and 	dmisg140.cprj = :tpisg220.cprj
+					and 	dmisg140.itdt <> 0
+					and	dmisg140.orgn ="ISG"
+					and	dmisg140.cext = tcyesno.yes	|#New Flag added - CHILD EXIST in PMDL
+					selectdo
+					endselect
+				endif
+				if MinIntermediatoryAdvanceDateUTC > chk.date then
+					change.utc.to.date(MinIntermediatoryAdvanceDateUTC, MinIntermediatoryAdvanceDate)
+					tpisg220.acsd =MinIntermediatoryAdvanceDate
+				else
+					tpisg220.acsd = 0
+				endif
+			endif
+			
+			tpisg220.cpgv = FinalPerc
+			ret = db.update(ttpisg220,db.retry,e)		
+		endselect
+	endselect
+	if not ret then
+		commit.transaction()
+	endif
+	
+}
+
+
+function domain tcdate poadvance.least.date()
+{	
+	domain	tcdate	ret.date, admisg140fadt
+	admisg140fadt = 0	
+		
+	select	admisg140.fadt:admisg140fadt
+	from	dmisg140 admisg140  
+	where	admisg140.iref = :tpisg220.sub1
+	and	admisg140.cprj = :tpisg220.cprj
+	and 	admisg140.fadt <> 0
+	order by admisg140.fadt asc
+	as set with 1 rows
+	selectdo
+	endselect
+	
+	if dmisg140.fadt <> 0 then
+		change.utc.to.date(admisg140fadt,ret.date)
+	else
+		ret.date = 0
+	endif							
+	
+	return(ret.date)
+}
+
+function domain tcdate pointer.least.date()
+{	
+	domain	tcdate	ret.date, admisg140itdt
+	admisg140itdt = 0
+	
+	select	admisg140.itdt:admisg140itdt
+	from	dmisg140  admisg140  
+	where	admisg140.iref = :tpisg220.sub1
+	and	admisg140.cprj = :tpisg220.cprj
+	and 	admisg140.itdt <> 0
+	order by admisg140.itdt asc
+	as set with 1 rows
+	selectdo
+	endselect
+	
+	if dmisg140.itdt <> 0 then
+		change.utc.to.date(admisg140itdt,ret.date)
+	else
+		ret.date = 0
+	endif
+	
+	return(ret.date)
+}
+
+
+function poapproval.perc(domain	tcmcs.st150m	i.item,
+			  domain	tcamnt		tot.adv.paid,
+			  domain	tcamnt		tot.adv.po)
+{
+	res.perc = 0
+	select	atpisg220.cpgv:sum.cpgv
+	from	tpisg220 atpisg220
+	where	atpisg220._index1 = {:dmisg140.cprj}
+	and	atpisg220.bohd = "CT_POAPPROVED"
+	and	atpisg220.sub1 = :i.item
+	selectdo
+	endselect
+						
+	if  (tot.adv.paid = 0) and (tot.adv.po = 0)  then
+		tot.adv.paid = 1
+		tot.adv.po = 1
+	endif
+								
+	if (tot.adv.paid <> 0) and (tot.adv.po <> 0) then
+		res.perc = (tot.adv.paid/tot.adv.po)*sum.cpgv
+	endif
+	
+}
+
+function change.utc.to.date(
+			domain	tcdate		var.date,
+		ref	domain	tfgld.date	ret.date)
+{
+	long utc  
+	long yearno  
+	long monthno  
+	long month_dayno  
+	long hours  
+	long minutes  
+	long seconds  
+	string result(80)
+
+	yearno = 0
+	monthno = 0
+	month_dayno = 0
+	hours = 0
+	minutes = 0
+	seconds = 0
+	ret.date = 0
+	
+	if var.date <> 0 then
+		utc.to.date (var.date, yearno,monthno,month_dayno,hours,minutes,seconds)
+		ret.date = date.to.num(yearno,monthno,month_dayno)
+		result = sprintf$("%D(Date: %02d/%02m/%04Y)",ret.date)
+	endif
+
+}
+
+function extern update.into.220.firstadvance.and.restadvance(domain	tccprj		i.cprj,
+								domain	tcmcs.s200u	i.iref,
+								domain	tcmcs.str50	i.bohd,
+								domain	tcamnt		tot.adv.paid,
+								domain	tcamnt		tot.adv.po)
+{
+	
+	select	tpisg220.*
+	from	tpisg220 for update
+	where	tpisg220._index1 = {:i.cprj}	
+	and	tpisg220.sub1 = :i.iref
+	and	tpisg220.bohd = :i.bohd	
+	selectdo
+		if trim$(i.bohd) = "CT_RESTADVANCERELEASE" then
+			tpisg220.acsd = pointer.least.date()
+		else
+			tpisg220.acsd = poadvance.least.date()
+		endif
+		poapproval.perc(tpisg220.sub1,tot.adv.paid,tot.adv.po)
+		
+		tpisg220.cpgv = res.perc
+		ret = db.update(ttpisg220,db.retry,e)
+		
+		
+	selectempty
+		select	tpisg220.*
+		from	tpisg220 for update
+		where	tpisg220._index1 = {:i.cprj}
+		and	tpisg220.cact = :i.iref
+		and	tpisg220.bohd = :i.bohd
+		selectdo
+			if trim$(i.bohd) = "CT_RESTADVANCERELEASE" then
+				tpisg220.acsd = pointer.least.date()
+			else
+				tpisg220.acsd = poadvance.least.date()
+			endif
+			poapproval.perc(tpisg220.cact, tot.adv.paid, tot.adv.po)
+			
+			tpisg220.cpgv = res.perc
+			ret = db.update(ttpisg220,db.retry,e)
+			
+			
+		endselect
+	endselect
+	
+	if not ret then
+		commit.transaction()
+	endif
+	
+}
+
+function extern update.project.activity.master.through.restadvance(domain 	tccprj		i.cprj,
+									domain	tcmcs.s200u	i.iref,
+									domain	tcmcs.str50	i.bohd)
+{
+	domain	tcpono		found, found1
+	tot.adv.po = 0
+	tot.adv.paid = 0
+	old.pay = ""
+	flag = 0 
+	select	distinct tfmsl020.adrq,tfmsl020.bamt,
+		tfmsl020.aprc, tfmsl020.orno, tfmsl020.srno
+	from	tfmsl020, tdisg002, dmisg140
+	where	dmisg140._index2 = {:i.cprj}
+	and	dmisg140.iref = :i.iref
+	and	tdisg002.docn = dmisg140.docn
+	and	tfmsl020.orno = tdisg002.orno
+	and	tfmsl020.optn = 3
+	and	tfmsl020.srno > 1
+	and 	tfmsl020.stat = 30
+	selectdo
+		flag = 1
+		tot.adv.paid = tot.adv.paid + (tfmsl020.bamt * (tfmsl020.aprc/100))
+	endselect
+	
+	tot.adv.po = 0
+	select	tdisg002.orno
+	from	tdisg002, dmisg140
+	where	dmisg140._index2 = {:i.cprj}
+	and	dmisg140.iref = :i.iref
+	and	tdisg002.docn = dmisg140.docn
+	group by tdisg002.orno
+	selectdo
+		flag = 1
+		select tdmsl400.vrsn:lat.vrsn
+		from	tdmsl400
+		where	tdmsl400._index1 = {:tdisg002.orno}
+		selectdo
+		endselect
+
+		select	sum(tcisg001.amnt):sum.amnt
+		from	tcisg001
+		where	tcisg001._index1 = {:tdisg002.orno, :lat.vrsn}
+		and	tcisg001.catg = 1
+		and	tcisg001.srno > 1
+		selectdo
+			tot.adv.po = tot.adv.po + sum.amnt
+		endselect
+		
+	endselect
+	
+	
+	if flag = 1 then
+		update.into.220.firstadvance.and.restadvance(i.cprj,i.iref,i.bohd,tot.adv.paid,tot.adv.po)
+	endif
+
+}
+
+function extern domain tcqiv1	order.amnt.of.po(domain tcorno		i.orno,
+						domain	tcmcs.s200u	i.iref)
+{
+	domain	tcsern		count.rec, latest.rev
+	domain	tcyesno		lat.rev.yes.no
+	domain	tcqiv1		po.amount, total.amount
+	domain	tcorno		orno
+	domain	tcpono		pono
+
+	total.amount = 0
+	latest.rev = 0
+	po.amount = 0
+	
+	select	tdisg002.orno, tdisg002.pono 
+	from	tdisg002, dmisg140
+	where	tdisg002.docn = dmisg140.docn
+	and	tdisg002.orno = :i.orno
+	and	dmisg140.iref = :i.iref
+	group by tdisg002.orno, tdisg002.pono 
+	selectdo
+		count.rec = 0
+		
+		get.latest.revision(i.orno,latest.rev,lat.rev.yes.no)
+		
+		if lat.rev.yes.no = tcyesno.yes then
+			select	sum(tdpur401.oamt):po.amount
+			from	tdpur401
+			where	tdpur401._index1 = {:i.orno,:tdisg002.pono}
+			selectdo
+			endselect
+		else
+			select	tdmsl501.qoor, tdmsl501.pric
+			from	tdmsl501
+			where	tdmsl501._index1 = {:i.orno,:latest.rev,:tdisg002.pono}
+			selectdo
+				po.amount = tdmsl501.qoor * tdmsl501.pric
+			endselect
+		endif
+		select	distinct atdisg002.orno:orno, atdisg002.pono:pono
+		from	tdisg002 atdisg002, dmisg140
+		where	atdisg002.docn = dmisg140.docn
+		and	atdisg002.orno = :i.orno
+		and	atdisg002.pono = :tdisg002.pono
+		selectdo
+			count.rec = count.rec + 1
+		endselect
+		if (count.rec <> 0) and (po.amount <> 0) then
+			total.amount = total.amount + (po.amount/count.rec)
+		endif
+	endselect
+		
+	return(total.amount)
+}
+
+function extern get.latest.revision(domain	tcorno			i.orno,
+					ref   domain	tcsern		o.rvsn,
+					ref   domain	tcyesno		o.lat.rvsn)
+{
+	domain	tcsern		latest.rev, get.rev
+	
+	select	max(tdmsl400.vrsn):get.rev
+	from	tdmsl400
+	where	tdmsl400._index1 = {:i.orno}
+	selectdo
+	endselect
+	
+	select	max(tdmsl400.vrsn):latest.rev
+	from	tdmsl400
+	where	tdmsl400._index1 = {:i.orno}
+	and	tdmsl400.work = 3
+	selectdo
+	endselect
+	
+	if latest.rev = get.rev then
+		o.lat.rvsn = tcyesno.yes
+	else
+		o.lat.rvsn = tcyesno.no
+	endif
+}
+
+function extern domain tcwght	 AllPOSubItemWeight(
+					domain tccprj		i.cprj,
+					domain	tcmcs.s200u	i.iref,
+					domain	tcorno		i.sitm)
+{
+	domain	tcwght	sum.subItemWeight
+	select	sum(tdisg002.wght):sum.subItemWeight
+	from	tdisg002, dmisg140, dmisg002
+	where	tdisg002.docn = dmisg140.docn
+	and	tdisg002.docn = dmisg002.docn
+	and	tdisg002.item = dmisg002.item
+	and	dmisg140.cprj = :i.cprj
+	and	dmisg140.iref = :i.iref
+	and	dmisg002.sitm = :i.sitm
+	selectdo
+	endselect
+	
+	return(sum.subItemWeight)
+}
+
+function extern domain tcqiv1	wght.of.po(domain tcorno	i.orno,
+					domain	tcmcs.s200u	i.iref,
+					domain	tcorno		i.sitm)
+{
+	domain	tcqiv1	sum.wt.po
+	
+	sum.wt.po = 0
+	
+	select	sum(tdisg002.wght):sum.wt.po
+	from	tdisg002, dmisg140, dmisg002
+	where	tdisg002.docn = dmisg140.docn
+	and	tdisg002.docn = dmisg002.docn
+	and	tdisg002.item = dmisg002.item
+	and	dmisg140.iref = :i.iref
+	and	dmisg002.sitm = :i.sitm
+	and	tdisg002._index1 = {:i.orno}
+	selectdo
+	endselect	
+	
+	return(sum.wt.po)
+}
+
+function extern domain tcqiv1	tot.value.of.po(domain tccprj		i.cprj,
+						domain tcmcs.s200u	i.iref)
+{	
+	domain	tcqiv1	val.po
+	
+	val.po = 0
+	
+	select	tdisg002.orno
+	from	tdisg002, dmisg140
+	where	dmisg140.cprj = :i.cprj
+	and	dmisg140.iref = :i.iref
+	and	tdisg002.docn = dmisg140.docn
+	group by tdisg002.orno
+	selectdo
+		val.po = val.po + order.amnt.of.po(tdisg002.orno,i.iref)
+	endselect	
+
+	return(val.po)
+}
+
+function extern domain tfgld.date GetStartDate(domain tcmcs.long BalanceDays, domain tfgld.date EndDate,domain tpcalender.typ TypeOfCalender)
+{
+	domain	tcmcs.long WorkingDaysCount, i, ReturnValue
+	WorkingDaysCount = 0
+	ReturnValue = 0
+	i = 0
+	
+	for i = BalanceDays to 1 STEP -1
+		ReturnValue = ISNonWorkingDay(EndDate, TypeOfCalender)
+		if ReturnValue = 0 then
+			EndDate = EndDate -1
+		else
+			EndDate = EndDate -2
+		endif
+	endfor
+	EndDate = EndDate + 1
+	return(EndDate)
+}
+
+
+
+
+function extern domain tcmcs.long GetWorkingDays(
+						domain	tfgld.date	StartDate,
+						domain	tfgld.date	EndDate,
+						domain	tpcalender.typ	TypeOfCalender)
+{
+	domain	tcmcs.long	WorkingDaysCount, i, ReturnValue
+	WorkingDaysCount = 0
+	ReturnValue = 0
+	i = 0
+	
+	for i = StartDate to EndDate STEP 1
+		ReturnValue =  ISNonWorkingDay(i, TypeOfCalender)
+		if ReturnValue = 0 then
+			WorkingDaysCount = WorkingDaysCount + 1
+		endif
+	endfor
+	
+	return(WorkingDaysCount)
+}
+
+function extern domain tcmcs.long GetDelayDays(
+						domain	tfgld.date	StartDate,
+						domain	tfgld.date	EndDate,
+						domain	tpcalender.typ	TypeOfCalender)
+{
+	domain	tcmcs.long	WorkingDaysCount, i, ReturnValue, FirstDate,LastDate,DelayDays
+	WorkingDaysCount = 0
+	ReturnValue = 0
+	i = 0
+	
+	if StartDate < EndDate then
+		FirstDate = StartDate
+		LastDate = EndDate
+	else 
+		FirstDate = EndDate
+		LastDate = StartDate
+	endif
+	
+	for i = FirstDate to LastDate STEP 1
+		ReturnValue =  ISNonWorkingDay(i, TypeOfCalender)
+		if ReturnValue = 0 then
+			WorkingDaysCount = WorkingDaysCount + 1
+		endif
+	endfor
+	
+	DelayDays = WorkingDaysCount - 1
+	
+	if StartDate < EndDate then
+	else 
+		DelayDays = 0 - DelayDays
+	endif
+	
+	return(DelayDays)
+}
+
+
+
+function extern domain tcmcs.long GetNonWorkingDays(
+						domain	tfgld.date	StartDate,
+						domain	tfgld.date	EndDate,
+						domain	tpcalender.typ	TypeOfCalender)
+{
+	domain	tcmcs.long	NonWorkingDaysCount, i, ReturnValue
+	NonWorkingDaysCount = 0
+	ReturnValue = 0
+	i = 0
+	
+	for i = StartDate to EndDate STEP 1
+		ReturnValue =  ISNonWorkingDay(i, TypeOfCalender)
+		if ReturnValue = 1 then
+			NonWorkingDaysCount = NonWorkingDaysCount + 1
+		endif
+	endfor
+	
+	return(NonWorkingDaysCount)
+}
+
+
+function extern long ISNonWorkingDay(	domain	tfgld.date	IDate,
+					domain	tpcalender.typ	TypeOfCalender)
+{
+	domain	tcmcs.str3	DayName
+	
+	DayName = sprintf$("%D(%a)",IDate)
+	
+	on case TypeOfCalender
+	case tpcalender.typ.fivedays :
+		if (DayName = "Sat") or (DayName = "Sun") then
+			return(1)
+		else
+			return(0)
+		endif
+		
+		break
+	case tpcalender.typ.sixdays :
+		if (DayName = "Sat") then
+			return(1)
+		else
+			return(0)
+		endif
+
+		break
+	case tpcalender.typ.alldays :
+		return(0)
+		break
+	endcase
+	
+	return(0)
+}
+
+function extern domain tcyesno ISWorkingDay(	domain	tfgld.date	IDate,
+					domain	tpcalender.typ	TypeOfCalender)
+{
+	domain	tcmcs.str3	DayName
+	
+	DayName = sprintf$("%D(%a)",IDate)
+	
+	on case TypeOfCalender
+	case tpcalender.typ.fivedays :
+		if (DayName = "Sat") or (DayName = "Sun") then
+			return(tcyesno.no)
+		else
+			return(tcyesno.yes)
+		endif
+		
+		break
+	case tpcalender.typ.sixdays :
+		if (DayName = "Sat") then
+			return(tcyesno.no)
+		else
+			return(tcyesno.yes)
+		endif
+
+		break
+	case tpcalender.typ.alldays :
+		return(tcyesno.yes)
+		break
+	endcase
+	
+	return(tcyesno.yes)
+}
+
+
+function extern ParentDurationCalculation(domain tccprj	cprj)
+{
+	domain	tcpono		OutlineFrom, OutlineTo, OutlineLevel,
+				DerivedDuration, Duration
+	domain	tcamnt		DurationSum
+	domain	tcmcs.str8	act.type
+	domain	tcmcs.str30	activity.code
+	
+	OutlineTo = 1
+	OutlineFrom = 9
+	OutlineLevel = 0
+	
+	
+	for OutlineLevel = OutlineFrom to OutlineTo step -1
+		select	tpisg220.cact
+		from	tpisg220	for update
+		where	tpisg220._index1 = {:cprj}
+		and	tpisg220.acty = "PARENT"
+		and	tpisg220.outl =:OutlineLevel
+| 		and	tpisg220.sub1 = "HP DOSING SYSTEM"
+		selectdo
+			DurationSum = 0
+			select	atpisg220.acty:act.type, atpisg220.dura:Duration, 
+				atpisg220.ddur:DerivedDuration, atpisg220.cact:activity.code
+			from	tpisg220 atpisg220
+			where	atpisg220._index1 = {:cprj}
+			and	atpisg220.pact =:tpisg220.cact
+			and 	atpisg220.cact <> :tpisg220.cact
+			selectdo
+				if trim$(act.type) = "PARENT" then
+					DurationSum = DurationSum + DerivedDuration					
+				else
+					DurationSum = DurationSum + Duration										
+				endif
+			endselect
+			tpisg220.ddur = DurationSum
+			db.update(ttpisg220, db.retry, e)
+			commit.transaction()
+		endselect
+	endfor
+}
+
+function extern ParentOutlookDurationCalculation(domain tccprj	cprj)
+{
+	domain	tcpono		OutlineFrom, OutlineTo, OutlineLevel, Duration
+	domain	tcamnt		DurationSum
+	domain	tcmcs.str8	act.type
+	domain	tcmcs.str30	activity.code
+	
+	OutlineTo = 1
+	OutlineFrom = 9
+	OutlineLevel = 0
+	
+	
+	for OutlineLevel = OutlineFrom to OutlineTo step -1
+		select	tpisg220.cact
+		from	tpisg220	for update
+		where	tpisg220._index1 = {:cprj}
+		and	tpisg220.acty = "PARENT"
+		and	tpisg220.outl =:OutlineLevel
+| 		and	tpisg220.sub1 = "HP DOSING SYSTEM"
+		selectdo
+			DurationSum = 0
+			select	atpisg220.acty:act.type, atpisg220.odur:Duration, 
+				atpisg220.cact:activity.code
+			from	tpisg220 atpisg220
+			where	atpisg220._index1 = {:cprj}
+			and	atpisg220.pact =:tpisg220.cact
+			and 	atpisg220.cact <> :tpisg220.cact
+			selectdo
+				DurationSum = DurationSum + Duration
+			endselect
+			tpisg220.odur = DurationSum
+			db.update(ttpisg220, db.retry, e)
+			commit.transaction()
+		endselect
+	endfor
+}
+
+
+function extern UpdateFinishDateInProjectActivityMaster(domain tccprj i.cprj)
+{
+	domain	tcdate		get.date, chk.date
+	domain	tfgld.date	FinishDate
+
+	chk.date = date.to.utc(2000,01,01,00,00,00)
+
+	select	tpisg220.cprj,tpisg220.sub1,tpisg220.bohd,tpisg220.cact,tpisg220.acfn,tpisg220.cpgv,tpisg220.pcod
+	from	tpisg220	for update
+	where	tpisg220._index1 = {:i.cprj}
+	and 	tpisg220.bohd not in("CT_PROPOSAL","CT_ESTIMATION","CT_ERECTION","CT_NOTAPPLICABLE","CT_PROJECT","CT_MARKETING","CT_COMMISSIONING","CT_LOGISTIC")
+	and	tpisg220.manu = tcyesno.no					|#ISGEC01128.n
+| 	and	tpisg220.sub1 = "HP DOSING SYSTEM"
+| 	and	tpisg220.bohd = "CT_MANUFACTURING"
+	selectdo
+		if tpisg220.cpgv > 99.99 then
+			FinishDate = 0
+			get.Date = 0
+			on case trim$(tpisg220.bohd)
+			case "CT_DOCUMENTAPPROVED":
+				select	max(dmisg140.adct):get.Date
+				from	dmisg140 
+				where	dmisg140._index1 = {:tpisg220.pcod, :tpisg220.cprj}
+				and	(dmisg140.iref =:tpisg220.sub1
+				or	dmisg140.iref =:tpisg220.cact)
+				and	dmisg140.orgn = "ISG"
+				and	dmisg140.cext = tcyesno.yes	|#New Flag added - CHILD EXIST in PMDL
+				selectdo
+				endselect
+				break
+				
+			case "CT_INDENTAPPROVED":
+				select	max(tdisg210.apdt):get.date
+				from	tdisg210, tdisg003, dmisg140
+				where	dmisg140._index1 = {:tpisg220.pcod, :tpisg220.cprj}
+				and 	tdisg210.rqno = tdisg003.rqno
+				and  	tdisg003.docn = dmisg140.docn
+				and  	dmisg140.orgn = "ISG"
+				and  	dmisg140.iref = :tpisg220.sub1
+				and	dmisg140.cext = tcyesno.yes	|#New Flag added - CHILD EXIST in PMDL
+				selectdo
+				endselect
+				break
+				
+			case "CT_RFQRAISED":
+				select	max(dmisg140.rfqd):get.date
+				from	dmisg140
+				where	dmisg140._index1 = {:tpisg220.pcod, :tpisg220.cprj}
+				and	dmisg140.iref = :tpisg220.sub1
+				and  	dmisg140.orgn = "ISG"
+				and 	dmisg140.rfqd > :chk.date
+				and	dmisg140.cext = tcyesno.yes	|#New Flag added - CHILD EXIST in PMDL
+				selectdo
+				endselect
+				break
+
+			case "CT_RFQOFFERECEIVED":
+				select	max(dmisg140.ofdt):get.date
+				from	dmisg140
+				where	dmisg140._index1 = {:tpisg220.pcod, :tpisg220.cprj}
+				and	dmisg140.iref = :tpisg220.sub1
+				and  	dmisg140.orgn = "ISG"
+				and 	dmisg140.ofdt > :chk.date
+				and	dmisg140.cext = tcyesno.yes	|#New Flag added - CHILD EXIST in PMDL
+				selectdo
+				endselect
+				break
+
+			case "CT_PREORDERTECHCLEAR":
+				select	max(dmisg140.prdt):get.date
+				from	dmisg140
+				where	dmisg140._index1 = {:tpisg220.pcod, :tpisg220.cprj}
+				and	dmisg140.iref = :tpisg220.sub1
+				and  	dmisg140.orgn = "ISG"
+				and 	dmisg140.prdt > :chk.date
+				and	dmisg140.cext = tcyesno.yes	|#New Flag added - CHILD EXIST in PMDL
+				selectdo
+				endselect
+				break
+				
+	| 		case "CT_PREORDERTECHSUBMIT":
+	| 			break
+
+			case "CT_RFQCOMMERCIALFINALISED":
+				select	max(dmisg140.cmfd):get.date
+				from	dmisg140
+				where	dmisg140._index1 = {:tpisg220.pcod, :tpisg220.cprj}
+				and	dmisg140.iref = :tpisg220.sub1
+				and  	dmisg140.orgn = "ISG"
+				and 	dmisg140.cmfd > :chk.date
+				and	dmisg140.cext = tcyesno.yes	|#New Flag added - CHILD EXIST in PMDL
+				selectdo
+				endselect
+				break
+				
+			case "CT_POSENTFORAPPROVAL":
+				select	max(dmisg140.pcdt):get.date
+				from	dmisg140
+				where	dmisg140._index1 = {:tpisg220.pcod, :tpisg220.cprj}
+				and	dmisg140.iref = :tpisg220.sub1
+				and  	dmisg140.orgn = "ISG"
+				and 	dmisg140.pcdt > :chk.date
+				and	dmisg140.cext = tcyesno.yes	|#New Flag added - CHILD EXIST in PMDL
+				selectdo
+				endselect
+				break
+				
+			case "CT_POAPPROVED":
+				select	max(dmisg140.padt):get.date
+				from	dmisg140
+				where	dmisg140._index1 = {:tpisg220.pcod, :tpisg220.cprj}
+				and	dmisg140.iref = :tpisg220.sub1
+				and  	dmisg140.orgn = "ISG"
+				and 	dmisg140.padt > :chk.date
+				and	dmisg140.cext = tcyesno.yes	|#New Flag added - CHILD EXIST in PMDL
+				selectdo
+				endselect
+				break
+			
+			case "CT_ISSUEPO":
+				select	max(dmisg140.pois):get.date
+				from	dmisg140
+				where	dmisg140._index1 = {:tpisg220.pcod, :tpisg220.cprj}
+				and	dmisg140.iref = :tpisg220.sub1
+				and  	dmisg140.orgn = "ISG"
+				and 	dmisg140.padt > :chk.date
+				and	dmisg140.cext = tcyesno.yes	|#New Flag added - CHILD EXIST in PMDL
+				selectdo
+				endselect
+				break
+			
+			case "CT_FIRSTADVANCERELEASE":
+				select	max(dmisg140.fadt):get.date
+				from	dmisg140
+				where	dmisg140._index1 = {:tpisg220.pcod, :tpisg220.cprj}
+				and	dmisg140.iref = :tpisg220.sub1
+				and  	dmisg140.orgn = "ISG"
+				and 	dmisg140.fadt > :chk.date
+				and	dmisg140.cext = tcyesno.yes	|#New Flag added - CHILD EXIST in PMDL
+				selectdo
+				endselect			
+				break
+			
+			case "CT_RESTADVANCERELEASE":
+				select	max(dmisg140.itdt):get.date
+				from	dmisg140
+				where	dmisg140._index1 = {:tpisg220.pcod, :tpisg220.cprj}
+				and	dmisg140.iref = :tpisg220.sub1
+				and  	dmisg140.orgn = "ISG"
+				and 	dmisg140.itdt > :chk.date
+				and	dmisg140.cext = tcyesno.yes	|#New Flag added - CHILD EXIST in PMDL
+				selectdo
+				endselect
+				break
+					
+			case "CT_POBANKGUARANTEE":
+				select	max(dmisg140.bgdt):get.date
+				from	dmisg140
+				where	dmisg140._index1 = {:tpisg220.pcod, :tpisg220.cprj}
+				and	dmisg140.iref = :tpisg220.sub1
+				and  	dmisg140.orgn = "ISG"
+				and 	dmisg140.bgdt > :chk.date
+				and	dmisg140.cext = tcyesno.yes	|#New Flag added - CHILD EXIST in PMDL
+				selectdo
+				endselect			
+				break
+				
+			case "CT_POSTORDERDRGSUBMIT":
+				select	max(dmisg140.psdt):get.date
+				from	dmisg140
+				where	dmisg140._index1 = {:tpisg220.pcod, :tpisg220.cprj}
+				and	dmisg140.iref = :tpisg220.sub1
+				and  	dmisg140.orgn = "VEN"
+				and 	dmisg140.psdt > :chk.date
+				selectdo
+				endselect			
+				break
+				
+			case "CT_POSTORDERDRGAPPROVAL":
+				select	max(dmisg140.podt):get.date
+				from	dmisg140
+				where	dmisg140._index1 = {:tpisg220.pcod, :tpisg220.cprj}
+				and	dmisg140.iref = :tpisg220.sub1
+				and  	dmisg140.orgn = "VEN"
+				and 	dmisg140.podt > :chk.date
+				selectdo
+				endselect
+				break			
+			
+			case "CT_INSPECTIONCALLRAISED":
+			case "CT_INSPECTIONBLACKCONDITION":
+			case "CT_FINALMICN":
+			case "CT_VEHICLEREQUESTRAISED":
+			case "CT_VEHICLEPLACED":
+			case "CT_MATERIALDISPATCHED":
+			case "CT_RECEIPTATPORT":
+			case "CT_SHIPMENT":		
+			case "CT_RECEIPTATSITE":		
+				|select	max(tpisg207.date):get.date
+				select	max(tpisg207.date):FinishDate
+				from	tpisg207 
+				where	tpisg207.cprj = :tpisg220.cprj
+				and	tpisg207.iref = :tpisg220.sub1
+				and	tpisg207.bohd = :tpisg220.bohd
+				selectdo
+				endselect			
+				break
+					
+			case "CT_MANUFACTURING":
+				select	max(tpisg183.aced):get.date
+				from	tpisg183
+				where	tpisg183._index2 = {:tpisg220.cprj,:tpisg220.cact}
+				selectdo
+				endselect			
+				break
+			endcase	
+			
+			if get.Date <> 0 or FinishDate <> 0 then
+				if get.Date <> 0 then
+					change.utc.to.date(get.Date,FinishDate)
+				endif
+				tpisg220.acfn = FinishDate
+			else	
+				tpisg220.acfn = 0
+			endif
+			
+| 			if get.Date <> 0 then
+| 				change.utc.to.date(get.Date,FinishDate)
+| 				tpisg220.acfn = FinishDate
+| 			else	
+| 				tpisg220.acfn = 0
+| 			endif
+			
+		else
+			tpisg220.acfn = 0
+		endif
+			db.update(ttpisg220, db.retry, e)
+			commit.transaction()
+			get.date = 0
+	endselect
+}
+
+
+
+|* To update Actual Start and Actual Finish Date of Parent Activities in Project Activity Master -
+|* Actual Start Date - Least Start date of immediate Child Activities(Parent and non parent activities)
+|* Actual Finish Date - Latest Finish Date of Child Activities(Parent and non parent activities)"
+
+function extern UpdateActualStartFinishDateInParentActivities(domain tccprj	i.cprj)
+{
+	domain	tfgld.date	valid.date, MinStartDate,MaxFinishDate
+	domain	tfgld.date	FinishDate
+	domain tcmcs.int 	FromOutline, ToOutline, i, outline
+
+	valid.date = date.to.num(2000,01,01) | Returns 726942
+
+	
+	FromOutline = 9
+	ToOutline = 1
+			
+	for i = FromOutline to ToOutline STEP -1
+		select	tpisg220.cprj,tpisg220.cact, tpisg220.cpgv
+		from	tpisg220	for update
+		where	tpisg220._index1 = {:i.cprj}
+		and	tpisg220.outl = :outline
+		and	tpisg220.acty = "PARENT"
+		selectdo
+			MinStartDate = 0
+			MaxFinishDate = 0
+			select min(tpisg220.acsd):MinStartDate
+			from	tpisg220 
+			where	tpisg220.cprj = :tpisg220.cprj
+			and	tpisg220.pact = :tpisg220.cact
+			and	tpisg220.acsd > :valid.date
+			selectdo
+			endselect
+			tpisg220.acsd = MinStartDate
+			
+			if tpisg220.cpgv > 99.99 then
+				select	max(tpisg220.acfn):MaxFinishDate
+				from	tpisg220 
+				where	tpisg220.cprj = :tpisg220.cprj
+				and	tpisg220.pact = :tpisg220.cact
+				and	tpisg220.acsd > :valid.date
+				selectdo
+				endselect
+				tpisg220.acfn = MaxFinishDate
+			endif
+			
+			db.update(ttpisg220, db.retry, e)
+		endselect
+		commit.transaction()
+	endfor
+}
