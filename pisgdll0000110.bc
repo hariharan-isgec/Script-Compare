@@ -50,10 +50,15 @@
 
 function extern renumber.in.220(domain tccprj		ren.cprj,
 				domain	  tcorno	ren.cprd)
-{
+{	
+	
 	idno = 0
-	
-	
+| 	select	tpisg200.cprd, tpisg200.cact,
+| 		tpisg200.actp
+| 	from	tpisg200
+| 	where	tpisg200._index1 = {:ren.cprd}
+| 	order by tpisg200.actp
+| 	
 	select	tpisg200.cprd, tpisg200.cact,
 		tpisg200.actp
 	from	tpisg200, tpisg220 atpisg220
@@ -73,22 +78,7 @@ function extern renumber.in.220(domain tccprj		ren.cprj,
 			commit.transaction()
 		endselect
 	endselect
-| 	select	tpisg200.cprd, tpisg200.cact,
-| 		tpisg200.actp
-| 	from	tpisg200
-| 	where	tpisg200._index1 = {:ren.cprd}
-| 	order by tpisg200.actp
-| 	selectdo
-| 		select	tpisg220.actp
-| 		from	tpisg220	for update
-| 		where	tpisg220._index1 = {:ren.cprj,:ren.cprd,:tpisg200.cact}
-| 		selectdo
-| 			idno = idno + 1
-| 			tpisg220.actp = idno
-| 			db.update(ttpisg220, db.retry, e)
-| 			commit.transaction()
-| 		endselect
-| 	endselect
+	
 }
 
 function extern update.inspectionid.and.vehicle.placement.progress.in.220(	domain	tccprj		i.cprj,
@@ -577,7 +567,7 @@ function check.and.update.220(	domain	tcmcs.s200u	i.iref,
 }
 
 
-function extern update.receipt.pi.irn.in.tpisg220(						|#Not in use
+function extern update.receipt.pi.irn.in.tpisg220(
 						domain	tccprj			i.cprj,
 						domain tcmcs.s200u		i.iref,
 						domain	tcorno			i.sitm)
@@ -1630,9 +1620,7 @@ function extern domain tcqiv1	tot.value.of.po(domain tccprj		i.cprj,
 	return(val.po)
 }
 
-function extern domain tfgld.date GetStartDate(	domain tcmcs.long BalanceDays,
-							domain tfgld.date EndDate,
-							domain tpcalender.typ TypeOfCalender)
+function extern domain tfgld.date GetStartDate(domain tcmcs.long BalanceDays, domain tfgld.date EndDate,domain tpcalender.typ TypeOfCalender)
 {
 	domain	tcmcs.long WorkingDaysCount, i, ReturnValue
 	WorkingDaysCount = 0
@@ -1647,9 +1635,13 @@ function extern domain tfgld.date GetStartDate(	domain tcmcs.long BalanceDays,
 			EndDate = EndDate -2
 		endif
 	endfor
-	EndDate = EndDate + 1
+	if BalanceDays > 1 then
+		EndDate = EndDate + 1
+	endif
 	return(EndDate)
 }
+
+
 function extern domain tcmcs.long GetWorkingDays(
 						domain	tfgld.date	StartDate,
 						domain	tfgld.date	EndDate,
@@ -1759,39 +1751,6 @@ function extern long ISNonWorkingDay(	domain	tfgld.date	IDate,
 	
 	return(0)
 }
-
-function extern domain tcyesno ISWorkingDay(	domain	tfgld.date	IDate,
-					domain	tpcalender.typ	TypeOfCalender)
-{
-	domain	tcmcs.str3	DayName
-	
-	DayName = sprintf$("%D(%a)",IDate)
-	
-	on case TypeOfCalender
-	case tpcalender.typ.fivedays :
-		if (DayName = "Sat") or (DayName = "Sun") then
-			return(tcyesno.no)
-		else
-			return(tcyesno.yes)
-		endif
-		
-		break
-	case tpcalender.typ.sixdays :
-		if (DayName = "Sat") then
-			return(tcyesno.no)
-		else
-			return(tcyesno.yes)
-		endif
-
-		break
-	case tpcalender.typ.alldays :
-		return(tcyesno.yes)
-		break
-	endcase
-	
-	return(tcyesno.yes)
-}
-
 
 function extern ParentDurationCalculation(domain tccprj	cprj)
 {
@@ -1907,8 +1866,7 @@ function extern UpdateFinishDateInProjectActivityMaster(domain tccprj i.cprj)
 			case "CT_INDENTAPPROVED":
 				select	max(tdisg210.apdt):get.date
 				from	tdisg210, tdisg003, dmisg140
-				where	dmisg140._index1 = {:tpisg220.pcod, :tpisg220.cprj}
-				and 	tdisg210.rqno = tdisg003.rqno
+				where	tdisg210.rqno = tdisg003.rqno
 				and  	tdisg003.docn = dmisg140.docn
 				and  	dmisg140.orgn = "ISG"
 				and  	dmisg140.iref = :tpisg220.sub1
