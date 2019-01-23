@@ -150,7 +150,7 @@ on.choice:
 	update.weight.in.item.reference.master.and.history(i.cprj)	|#ISGEC01145.n
 	update.data.in.pmdl.and.activty.master(i.cprj)
 	update.document.approval.wip(i.cprj)				|#ISGEC01139.n
-	
+	UpdateActualProgress(i.cprj)					|#ISGEC01155.n
 	UpdateFinishDateInProjectActivityMaster(i.cprj)
 	UpdateActualStartFinishDateInParentActivities(i.cprj)
 	UpdateMilestoneActivities(i.cprj)
@@ -252,8 +252,8 @@ function update.document.approval.wip(domain tccprj	i.cprj)		|#ISGEC01139.sn
 		tpisg220.wipp = 0
 		wip.num = 0
 		wip.den = 0
+		min.tdat = 0
 		
-
 		select	sum(dmisg140.dhrs+dmisg140.chrs+dmisg140.ehrs+dmisg140.lmhr):wip.den
 		from	dmisg140
 		where	dmisg140._index1 = {:tpisg220.pcod, :tpisg220.cprj}
@@ -297,7 +297,7 @@ function update.document.approval.wip(domain tccprj	i.cprj)		|#ISGEC01139.sn
 		commit.transaction()
 
 	endselect
-}
+}										|#ISGEC01139.en
 
 function update.data.in.pmdl.and.activty.master(domain	tccprj	i.cprj)
 {
@@ -543,7 +543,7 @@ function update.activity.master.through.document.approval(domain tcorno		i.pcod,
 						 	   domain tcmcs.s200u		tp.iref,	
 							   domain tcmcs.str30		i.cact)
 {
-	if trim$(dm.iref) = trim$(tp.iref) then
+	if dm.iref = tp.iref then
 		tpisg220.acsd = docsapproval.least.date(tp.iref,i.cprj)
 	endif
 	
@@ -560,7 +560,7 @@ function update.activity.master.through.po.approval(domain tcorno		i.pcod,
 						     domain tcmcs.s200u		tp.iref,
 						     domain tcmcs.str30		i.cact)
 {
-	if trim$(dm.iref) = trim$(tp.iref) then
+	if dm.iref = tp.iref then
 		tpisg220.acsd = poapproved.least.date(tp.iref,i.cprj)
 	endif
 	
@@ -580,7 +580,7 @@ function update.activity.master.through.posent.for.approval(domain tcorno		i.pco
 							     domain tcmcs.str30		i.cact)
 {
 	
-	if trim$(dm.iref) = trim$(tp.iref) then
+	if dm.iref = tp.iref then
 		tpisg220.acsd = posentapproval.least.date(tp.iref,i.cprj)
 	endif
 	
@@ -599,7 +599,7 @@ function update.activity.master.through.indent.approval(domain tcorno		i.pcod,
 							domain tcmcs.str30	i.cact)
 {
 	
-	if trim$(dm.iref) = trim$(tp.iref) then
+	if dm.iref = tp.iref then
 		tpisg220.acsd = get.least.indent.date(tp.iref,i.cprj)
 	endif
 	
@@ -618,7 +618,7 @@ function update.activity.master.through.bank.guarentee(domain tcorno		i.pcod,
 							domain tcmcs.str30	i.cact)
 {
 	
-	if trim$(dm.iref) = trim$(tp.iref) then
+	if dm.iref = tp.iref then
 		tpisg220.acsd = bankguarantee.least.date(tp.iref,i.cprj)
 	endif
 	
@@ -636,7 +636,7 @@ function update.project.activity.master.through.postorderdrgapproval(	domain tco
 									domain tcmcs.str30	i.cact)
 {
 	
-	if trim$(dm.iref) = trim$(tp.iref) then
+	if dm.iref = tp.iref then
 		tpisg220.acsd = postorderapproval.least.date(tp.iref,i.cprj)
 	endif
 	
@@ -655,7 +655,7 @@ function update.project.activity.master.through.postorderdrgsubmit(	domain tcorn
 									domain tcmcs.str30	i.cact)
 {
 	
-	if trim$(dm.iref) = trim$(tp.iref) then
+	if dm.iref = tp.iref then
 		tpisg220.acsd = postordersubmit.least.date(tp.iref,i.cprj)
 	endif
 	
@@ -766,15 +766,15 @@ function manufacturing.progress.update(
 	POManufacturingWeight = 0
 	
 	
-	if shiftl$(strip$(tpisg220.dept)) = "ISGYNR" then 	|#veena.11-01-2019.sn
-		select	sum(tpisg183.tpgv):sum.tpgv
-		from	tpisg183
-		where	tpisg183._index2 = {:i.cprj,:i.cact}
-		selectdo endselect
-		tpisg220.cpgv = sum.tpgv
-		db.update(ttpisg220,db.retry,e)
-		commit.transaction()
-	else							|#veena.11-01-2019.en
+
+
+
+
+
+
+
+
+
 
 		select	tpisg183.orno
 		from	tpisg183, tdisg002, dmisg140
@@ -837,12 +837,12 @@ function manufacturing.progress.update(
 	| 							TotalPOManufacturingPerc = sum.tpgv
 	| 						endif
 							
-							if TotalPOManufacturingPerc<> 0 and i.po.perc<> 0 then		|#veena.22-01-2019
+
 								t.cpgv = t.cpgv + (TotalPOManufacturingPerc / i.po.perc)*100
-							else
-								t.cpgv = 0
-							endif
 							
+
+
+
 							tpisg220.cpgv = t.cpgv
 
 							db.update(ttpisg220,db.retry,e)
@@ -859,11 +859,11 @@ function manufacturing.progress.update(
 		| 					else
 								po.sub.item.wght = AllPOSubItemWeight(i.cprj, i.iref, tpisg220.sitm)
 
-								if POManufacturingWeight<> 0 and po.sub.item.wght<>0 then	|#veena.22-01-2019
+
 									t.cpgv = t.cpgv + (POManufacturingWeight/po.sub.item.wght) * i.po.perc
-								else
-									t.cpgv = 0
-								endif
+
+
+
 		| 					endif
 
 							tpisg220.cpgv = t.cpgv
@@ -874,7 +874,7 @@ function manufacturing.progress.update(
 				endselect
 			endselect
 			commit.transaction()
-		endif
+
 	endif
 }
 
@@ -911,7 +911,7 @@ function assign.perc(domain tcmcs.s200u	dm.iref,
 {	
 	FinalPerc = 0
 	
-	if (trim$(dm.iref) = trim$(tp.iref)) then
+	if (dm.iref = tp.iref) then
 		calculate.perc(tp.iref,i.cprj)
 	else if (trim$(dm.iref) = trim$(i.cact)) then
 		calculate.perc(i.cact,i.cprj)
@@ -2207,6 +2207,90 @@ function UpdateMilestoneActivities(domain	tccprj		i.cprj)
 			commit.transaction()			
 		endif
 	endselect
-	
-
 }
+												|#ISGEC01155.sn
+function UpdateActualProgress(domain	tccprj		i.cprj)
+{
+	domain	tfgld.date	ValidDate
+	domain	tcmcs.long	NonWorkingDays, ElapsedDays, GetDuration
+	domain	tcmcs.double	duration
+	
+	ValidDate = date.to.num(2000,01,01)
+	
+	select	tpisg220.cprj,
+		tpisg220.cpgv,
+		tpisg220.mosd,
+		tpisg220.moed,
+		tpisg220.otsd,
+		tpisg220.oted,
+		tpisg220.odur
+	from	tpisg220	for update
+	where	tpisg220._index1 = {:i.cprj}
+	and	tpisg220.sub1 inrange :from.iref and :to.iref
+	and	tpisg220.bohd = :bohd
+	and	tpisg220.manu = tcyesno.no
+	and	tpisg220.rmcm = tcyesno.yes
+	selectdo
+		
+		NonWorkingDays = 0
+		ElapsedDays = 0
+		GetDuration = 0 
+		duration = 0
+		
+		if (tpisg220.mosd > ValidDate) and  (tpisg220.moed > ValidDate) then
+			NonWorkingDays = GetNonWorkingDays(tpisg220.mosd, date.num(), tpcalender.typ.fivedays)
+			ElapsedDays = (date.num() - tpisg220.mosd - NonWorkingDays)
+			
+			GetDuration = GetNonWorkingDays(tpisg220.mosd, tpisg220.moed, tpcalender.typ.fivedays)
+			duration = (tpisg220.moed - tpisg220.mosd - NonWorkingDays)
+			
+			if (ElapsedDays > 0) and (duration > 0)  then
+			
+| 				if tpisg220.cpgv < 90 then
+					tpisg220.wipp = (ElapsedDays / duration)*100
+					
+| 					if tpisg220.wipp > 90 then
+| 						tpisg220.wipp = 90
+| 					endif
+					
+| 					tpisg220.cpgv = tpisg220.cpgv + tpisg220.wipp
+					tpisg220.cpgv = tpisg220.wipp
+| 				endif
+				
+				
+				if tpisg220.cpgv > 90 then
+					tpisg220.cpgv = 90 
+				endif
+				
+				db.update(ttpisg220, db.retry, e)
+			endif
+		else
+			if (tpisg220.otsd > ValidDate) and (tpisg220.oted > ValidDate) then
+				NonWorkingDays = GetNonWorkingDays(tpisg220.otsd, date.num(), tpcalender.typ.fivedays)
+				ElapsedDays = (date.num() - tpisg220.otsd - NonWorkingDays)
+				
+				if ElapsedDays > 0 then
+| 					if tpisg220.cpgv < 90 then
+						tpisg220.wipp = (ElapsedDays / tpisg220.odur)*100
+						
+| 						if tpisg220.wipp > 90 then
+| 							tpisg220.wipp = 90
+| 						endif
+						
+| 						tpisg220.cpgv = tpisg220.cpgv + tpisg220.wipp
+						tpisg220.cpgv = tpisg220.wipp
+| 					endif
+						
+					if tpisg220.cpgv > 90 then
+						tpisg220.cpgv = 90 
+					endif
+				
+					db.update(ttpisg220, db.retry, e)
+				endif
+			endif
+		endif
+		commit.transaction()
+	endselect
+}
+
+														|#ISGEC01155.en
