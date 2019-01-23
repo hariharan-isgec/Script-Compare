@@ -1923,6 +1923,7 @@ function extern UpdateFinishDateInProjectActivityMaster(domain tccprj i.cprj)
 				endselect
 				break
 				
+
 			case "CT_RFQRAISED":
 				select	max(dmisg140.rfqd):get.date
 				from	dmisg140
